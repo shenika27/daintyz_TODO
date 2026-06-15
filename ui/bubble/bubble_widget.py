@@ -8,7 +8,7 @@
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 
 from PyQt6.QtCore import QPoint, QRect, Qt, QTimer
 from PyQt6.QtWidgets import (
@@ -28,7 +28,7 @@ from ui.bubble.month_view import MonthView
 from ui.bubble.week_view import WeekView
 
 _ORDER = ["day", "week", "month"]
-_WIDTH = {"day": 300, "week": 920, "month": 470}
+_WIDTH = {"day": 240, "week": 920, "month": 470}
 _GAP = 10
 _MARGIN = 6
 _WD_KR = ["일", "월", "화", "수", "목", "금", "토"]
@@ -95,7 +95,26 @@ class BubbleWidget(QWidget):
         f.setBold(True)
         f.setPointSize(f.pointSize() + 1)
         self._title.setFont(f)
-        bar.addWidget(self._title, 1)
+        bar.addWidget(self._title)
+
+        # 주간 전/다음 주 이동 (주간 모드에서만 노출, '주간' 텍스트 우측)
+        self._prev_week = QToolButton()
+        self._prev_week.setText("‹")  # ‹
+        self._prev_week.setToolTip("이전 주")
+        self._prev_week.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._prev_week.setVisible(False)
+        self._prev_week.clicked.connect(lambda: self._shift_week(-7))
+        bar.addWidget(self._prev_week)
+
+        self._next_week = QToolButton()
+        self._next_week.setText("›")  # ›
+        self._next_week.setToolTip("다음 주")
+        self._next_week.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._next_week.setVisible(False)
+        self._next_week.clicked.connect(lambda: self._shift_week(7))
+        bar.addWidget(self._next_week)
+
+        bar.addStretch(1)
 
         self._revert = QToolButton()
         self._revert.setObjectName("undoBtn")
@@ -138,6 +157,9 @@ class BubbleWidget(QWidget):
         self._view_layout.addWidget(view)
 
         self._title.setText(self._title_text())
+        is_week = self.view_mode == "week"
+        self._prev_week.setVisible(is_week)
+        self._next_week.setVisible(is_week)
         self.setFixedWidth(_WIDTH[self.view_mode])
         self.adjustSize()
         self.layout().activate()      # 레이아웃 즉시 확정 시도
@@ -154,6 +176,12 @@ class BubbleWidget(QWidget):
 
     def select_date(self, iso: str) -> None:
         self.selected_iso = iso
+        self.render()
+
+    def _shift_week(self, days: int) -> None:
+        """주간 보기에서 선택 날짜를 ±7일 이동(같은 요일 유지)해 전/다음 주로."""
+        d = date.fromisoformat(self.selected_iso) + timedelta(days=days)
+        self.selected_iso = d.isoformat()
         self.render()
 
     def open_day(self, iso: str) -> None:

@@ -64,7 +64,7 @@ if errorlevel 1 (
     echo Inno Setup build failed. See %LOG%
     goto :fail
 )
-echo     -^> build\installer_out\CharacterTodo-Setup-0.2.5.exe created
+echo     -^> build\installer_out\CharacterTodo-Setup-0.2.6.exe created
 
 :done
 echo.

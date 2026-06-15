@@ -5,8 +5,15 @@
 """
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt
+from pathlib import Path
+
+from PyQt6.QtCore import QPointF, Qt
+from PyQt6.QtGui import QColor, QPainter, QPen, QPixmap
 from PyQt6.QtWidgets import QApplication
+
+from core import paths
+
+_CHECK_VER = "v1"  # 체크마크 디자인 바뀌면 올려서 캐시 갱신
 
 LIGHT = {
     "bg": "#FFFFFF",
@@ -68,8 +75,32 @@ def palette(mode: str | None) -> dict:
     return DARK if resolve(mode) == "dark" else LIGHT
 
 
+def _check_icon_path() -> str:
+    """체크박스용 흰색 체크마크 PNG를 캐시(사용자 데이터)에 만들어 경로를 돌려준다.
+    accent 채움 위에 올라가므로 흰색이면 밝게/어둡게 모두 잘 보인다."""
+    path = paths.app_data_dir() / f"check_{_CHECK_VER}.png"
+    if not path.exists():
+        size = 28
+        pm = QPixmap(size, size)
+        pm.fill(QColor(0, 0, 0, 0))
+        p = QPainter(pm)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        pen = QPen(QColor("#FFFFFF"))
+        pen.setWidthF(size * 0.13)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        p.setPen(pen)
+        s = size
+        p.drawLine(QPointF(s * 0.24, s * 0.52), QPointF(s * 0.42, s * 0.70))
+        p.drawLine(QPointF(s * 0.42, s * 0.70), QPointF(s * 0.74, s * 0.30))
+        p.end()
+        pm.save(str(path), "PNG")
+    return path.as_posix()
+
+
 def qss(mode: str | None) -> str:
     c = palette(mode)
+    check_url = _check_icon_path()
     return f"""
 #bubbleRoot {{
     background: {c['bg']};
@@ -121,11 +152,15 @@ def qss(mode: str | None) -> str:
 
 #bubbleRoot QCheckBox {{ spacing: 0; }}
 #bubbleRoot QCheckBox::indicator {{
-    width: 14px; height: 14px;
-    border: 1.5px solid {c['check_border']}; border-radius: 4px; background: transparent;
+    width: 15px; height: 15px;
+    border: 1.5px solid {c['check_border']}; border-radius: 5px; background: transparent;
+}}
+#bubbleRoot QCheckBox::indicator:unchecked:hover {{
+    border-color: {c['accent']}; background: {c['accent_soft']};
 }}
 #bubbleRoot QCheckBox::indicator:checked {{
-    background: {c['accent']}; border-color: {c['accent']};
+    border: 1.5px solid {c['accent']}; border-radius: 5px;
+    background: {c['accent']}; image: url({check_url});
 }}
 
 #bubbleRoot QFrame#dayCol {{ border: 1px solid {c['border']}; border-radius: 8px; }}

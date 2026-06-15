@@ -2,7 +2,7 @@
 ; 사전: PyInstaller 로 dist\CharacterTodo\ 가 만들어져 있어야 함 (build.bat 이 처리).
 
 #define AppName "Character TODO"
-#define AppVersion "0.2.5"
+#define AppVersion "0.2.6"
 #define AppExe "CharacterTodo.exe"
 
 [Setup]

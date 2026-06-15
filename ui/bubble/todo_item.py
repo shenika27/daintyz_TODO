@@ -199,11 +199,34 @@ class TodoItem(QWidget):
         mime = QMimeData()
         mime.setData(MIME_TODO, f"{self.todo.id}|{self.todo.due_date}".encode())
         drag.setMimeData(mime)
+        # 마우스 아래에 끌고 있는 할일을 반투명 미리보기로 표시
+        pm = self._drag_preview()
+        drag.setPixmap(pm)
+        lw = int(pm.width() / pm.devicePixelRatio())
+        drag.setHotSpot(QPoint(lw // 2, -8))  # 커서 살짝 아래·가운데
         # 캐릭터(휴지통) 위 = Copy 액션 → 휴지통 커서. 날짜 칸 = Move → 기본 커서.
         drag.setDragCursor(_trash_pixmap(30, "#E5484D"), Qt.DropAction.CopyAction)
         drag.exec(Qt.DropAction.MoveAction | Qt.DropAction.CopyAction)
         self._press_pos = None
         # 삭제는 캐릭터에 드롭 시 캐릭터 쪽에서 처리.
+
+    def _drag_preview(self) -> QPixmap:
+        """현재 행 모습 그대로 캡처해 반투명 처리한 드래그 미리보기.
+        일간 hover 시 떠 있는 연필/휴지통은 빼고 깔끔하게 캡처한다."""
+        pencil_v, x_v = self.pencil.isVisible(), self.xbtn.isVisible()
+        self.pencil.setVisible(False)
+        self.xbtn.setVisible(False)
+        src = self.grab()  # 테마/취소선 등 실제 렌더 그대로
+        self.pencil.setVisible(pencil_v)
+        self.xbtn.setVisible(x_v)
+        pm = QPixmap(src.size())
+        pm.setDevicePixelRatio(src.devicePixelRatio())
+        pm.fill(QColor(0, 0, 0, 0))
+        p = QPainter(pm)
+        p.setOpacity(0.7)
+        p.drawPixmap(0, 0, src)
+        p.end()
+        return pm
 
 
 # ── 아이콘 그리기 (테마 무관, 직접 렌더) ────────────────────
