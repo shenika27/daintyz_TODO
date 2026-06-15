@@ -1,31 +1,37 @@
 """ui/bubble/bubble_widget.py — 말풍선: 헤더(확장/최소화/되돌리기) + 뷰 + 입력바.
 
-확장 버튼: 일간 → 주간 → 월간 → 일간(오늘) 순환.
-캐릭터 위치 기준으로 화면 밖으로 나가지 않게 방향을 뒤집어 배치한다.
+- 확장 버튼: 일간 → 주간 → 월간 → 일간(오늘) 순환
+- 되돌리기: 화살표 아이콘(↺) 버튼, 삭제 직후에만 노출
+- 테마(밝게/어둡게/자동) 스타일 적용
+- 배치: 캐릭터 기준으로 화면 안쪽 방향으로 펼치고 화면 밖으로 안 나가게 clamp
+        (캐릭터 드래그 중에는 말풍선도 따라 이동)
 """
 from __future__ import annotations
 
 from datetime import date
 
-from PyQt6.QtCore import QRect, Qt
+from PyQt6.QtCore import QPoint, QRect, Qt, QTimer
 from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
-    QPushButton,
     QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
 from domain import policies
+from ui import theme
 from ui.bubble.day_view import DayView
 from ui.bubble.input_bar import InputBar
 from ui.bubble.month_view import MonthView
 from ui.bubble.week_view import WeekView
 
 _ORDER = ["day", "week", "month"]
-_WIDTH = {"day": 280, "week": 560, "month": 400}
+_WIDTH = {"day": 300, "week": 920, "month": 470}
+_GAP = 10
+_MARGIN = 6
+_WD_KR = ["일", "월", "화", "수", "목", "금", "토"]
 
 
 class BubbleWidget(QWidget):
@@ -34,32 +40,30 @@ class BubbleWidget(QWidget):
         self._service = service
         self._events = events
         self._settings = settings_repo
+        self._char_geom: QRect | None = None
+        self._screen_geom: QRect | None = None
 
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
             | Qt.WindowType.Tool
             | Qt.WindowType.WindowStaysOnTopHint
         )
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
 
         self.selected_iso = date.today().isoformat()
         self.view_mode = self._settings.get(policies.KEY_LAST_VIEW, "day") or "day"
         if self.view_mode not in _ORDER:
             self.view_mode = "day"
 
-        root = QFrame(self)
-        root.setObjectName("bubbleRoot")
-        root.setStyleSheet(
-            "#bubbleRoot { background: palette(window); border: 1px solid rgba(0,0,0,0.25);"
-            " border-radius: 10px; }"
-        )
+        self._root = QFrame(self)
+        self._root.setObjectName("bubbleRoot")
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(0, 0, 0, 0)
-        outer.addWidget(root)
+        outer.setContentsMargins(8, 8, 8, 8)  # 그림자/여백
+        outer.addWidget(self._root)
 
-        self._vbox = QVBoxLayout(root)
-        self._vbox.setContentsMargins(6, 6, 6, 6)
-        self._vbox.setSpacing(4)
+        self._vbox = QVBoxLayout(self._root)
+        self._vbox.setContentsMargins(8, 8, 8, 8)
+        self._vbox.setSpacing(6)
 
         self._build_header()
         self._view_holder = QWidget()
@@ -72,32 +76,47 @@ class BubbleWidget(QWidget):
 
         self._events.todos_changed.connect(self._on_data_changed)
         self._events.delete_undo_available.connect(self._set_revert_visible)
+        self._events.theme_changed.connect(self.apply_theme)
 
+        self.apply_theme()
         self.render()
+
+    # ── 테마 ────────────────────────────────────────────────
+    def apply_theme(self) -> None:
+        mode = self._settings.get(policies.KEY_THEME, "system")
+        self.setStyleSheet(theme.qss(mode))
 
     # ── 헤더 ────────────────────────────────────────────────
     def _build_header(self) -> None:
         bar = QHBoxLayout()
+        bar.setSpacing(2)
         self._title = QLabel()
         f = self._title.font()
         f.setBold(True)
+        f.setPointSize(f.pointSize() + 1)
         self._title.setFont(f)
         bar.addWidget(self._title, 1)
 
-        self._revert = QPushButton("되돌리기")
+        self._revert = QToolButton()
+        self._revert.setObjectName("undoBtn")
+        self._revert.setText("\u21ba")  # ↺
+        self._revert.setToolTip("되돌리기")
+        self._revert.setCursor(Qt.CursorShape.PointingHandCursor)
         self._revert.setVisible(False)
         self._revert.clicked.connect(self._on_revert)
         bar.addWidget(self._revert)
 
         self._expand = QToolButton()
-        self._expand.setText("\u25a3")  # ▣
+        self._expand.setText("\u26f6")  # ⛶ 확장
         self._expand.setToolTip("확장 (일→주→월)")
+        self._expand.setCursor(Qt.CursorShape.PointingHandCursor)
         self._expand.clicked.connect(self.cycle_expand)
         bar.addWidget(self._expand)
 
         self._min = QToolButton()
         self._min.setText("\u2013")  # –
         self._min.setToolTip("최소화")
+        self._min.setCursor(Qt.CursorShape.PointingHandCursor)
         self._min.clicked.connect(self.hide)
         bar.addWidget(self._min)
 
@@ -115,25 +134,38 @@ class BubbleWidget(QWidget):
         elif self.view_mode == "week":
             view = WeekView(self.selected_iso, self._service, self.select_date)
         else:
-            view = MonthView(self.selected_iso, self._service, self.select_date)
+            view = MonthView(self.selected_iso, self._service, self.select_date, self.open_day)
         self._view_layout.addWidget(view)
 
         self._title.setText(self._title_text())
         self.setFixedWidth(_WIDTH[self.view_mode])
         self.adjustSize()
+        self.layout().activate()      # 레이아웃 즉시 확정 시도
+        self._reposition()
+        # 확장으로 높이가 커지는 경우, 레이아웃이 완전히 확정된 다음 한 번 더 재배치
+        # (안 그러면 옛 높이로 계산되어 말풍선이 캐릭터를 덮는 문제)
+        QTimer.singleShot(0, self._reposition)
 
     def _title_text(self) -> str:
         d = date.fromisoformat(self.selected_iso)
-        return f"{d.year}-{d.month:02d}-{d.day:02d} ({self.view_mode})"
+        wd = _WD_KR[policies.app_weekday(d)]
+        label = {"day": "", "week": "  · 주간", "month": "  · 월간"}[self.view_mode]
+        return f"{d.month}월 {d.day}일 ({wd}){label}"
 
     def select_date(self, iso: str) -> None:
         self.selected_iso = iso
         self.render()
 
+    def open_day(self, iso: str) -> None:
+        """월간 등에서 특정 날짜를 일간 보기로 연다."""
+        self.selected_iso = iso
+        self.view_mode = "day"
+        self._settings.set(policies.KEY_LAST_VIEW, "day")
+        self.render()
+
     def cycle_expand(self) -> None:
         idx = (_ORDER.index(self.view_mode) + 1) % len(_ORDER)
         self.view_mode = _ORDER[idx]
-        # 월간에서 재확장 → 일간(오늘)로
         if self.view_mode == "day":
             self.selected_iso = date.today().isoformat()
         self._settings.set(policies.KEY_LAST_VIEW, self.view_mode)
@@ -152,20 +184,47 @@ class BubbleWidget(QWidget):
 
     # ── 배치 ────────────────────────────────────────────────
     def show_for_character(self, char_geom: QRect, screen_geom: QRect) -> None:
+        self._char_geom = char_geom
+        self._screen_geom = screen_geom
         self.render()
         self.adjustSize()
-        w, h = self.width(), self.height()
-
-        # 기본: 캐릭터 위쪽에 띄움
-        x = char_geom.center().x() - w // 2
-        y = char_geom.top() - h - 8
-        # 위 공간 부족 → 아래로
-        if y < screen_geom.top():
-            y = char_geom.bottom() + 8
-        # 좌우 화면 밖 → clamp
-        x = max(screen_geom.left() + 4, min(x, screen_geom.right() - w - 4))
-        y = max(screen_geom.top() + 4, min(y, screen_geom.bottom() - h - 4))
-
-        self.move(x, y)
+        self._reposition()
         self.show()
         self.raise_()
+
+    def reposition_for_character(self, char_geom: QRect, screen_geom: QRect) -> None:
+        """캐릭터 드래그 중 말풍선만 따라 이동(뷰 재구성 없이 위치만)."""
+        self._char_geom = char_geom
+        self._screen_geom = screen_geom
+        self._reposition()
+
+    def _reposition(self) -> None:
+        if self._char_geom is None or self._screen_geom is None:
+            return
+        self.move(self._placement(self._char_geom, self._screen_geom))
+
+    def _placement(self, char: QRect, scr: QRect) -> QPoint:
+        """캐릭터 위치는 그대로 두고, 캐릭터를 가리지 않는 자리에 말풍선을 둔다.
+        우선순위: 위 → 아래 → 오른쪽 → 왼쪽. 모두 안 되면 화면 안으로 clamp(최후)."""
+        w, h = self.width(), self.height()
+        # 위/아래용 가로 위치(캐릭터 중심 정렬 후 화면 안으로 clamp)
+        hx = max(scr.left() + _MARGIN, min(char.center().x() - w // 2, scr.right() - w - _MARGIN))
+        # 좌/우용 세로 위치(캐릭터 중심 정렬 후 clamp)
+        vy = max(scr.top() + _MARGIN, min(char.center().y() - h // 2, scr.bottom() - h - _MARGIN))
+
+        above_y = char.top() - h - _GAP
+        below_y = char.bottom() + _GAP
+        right_x = char.right() + _GAP
+        left_x = char.left() - w - _GAP
+
+        if above_y >= scr.top() + _MARGIN:
+            return QPoint(hx, above_y)
+        if below_y + h <= scr.bottom() - _MARGIN:
+            return QPoint(hx, below_y)
+        if right_x + w <= scr.right() - _MARGIN:
+            return QPoint(right_x, vy)
+        if left_x >= scr.left() + _MARGIN:
+            return QPoint(left_x, vy)
+        # 최후: 화면 안으로 clamp (아주 작은 화면에서만 캐릭터와 겹칠 수 있음)
+        y = max(scr.top() + _MARGIN, min(above_y, scr.bottom() - h - _MARGIN))
+        return QPoint(hx, y)

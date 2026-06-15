@@ -33,10 +33,6 @@ class TodoService:
             date.fromisoformat(start_iso), date.fromisoformat(end_iso)
         )
 
-    def counts_in_range(self, start_iso: str, end_iso: str) -> dict[str, int]:
-        self.ensure_range(start_iso, end_iso)
-        return self._repo.counts_in_range(start_iso, end_iso)
-
     # ── 쓰기 ────────────────────────────────────────────────
     def add(self, content: str, iso: str) -> None:
         content = content.strip()

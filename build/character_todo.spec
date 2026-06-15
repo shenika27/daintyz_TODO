@@ -9,6 +9,7 @@ ROOT = os.path.abspath(os.getcwd())
 datas = [
     (os.path.join(ROOT, "data", "migrations"), os.path.join("data", "migrations")),
     (os.path.join(ROOT, "resources"), "resources"),
+    (os.path.join(ROOT, "VERSION"), "."),
 ]
 
 icon_path = os.path.join(ROOT, "resources", "app.ico")

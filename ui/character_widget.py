@@ -15,6 +15,7 @@ from PyQt6.QtGui import QAction, QBrush, QColor, QPainter, QPixmap
 from PyQt6.QtWidgets import QApplication, QMenu, QWidget
 
 from domain import policies
+from ui.bubble.todo_item import MIME_TODO
 
 log = logging.getLogger(__name__)
 
@@ -41,6 +42,7 @@ class CharacterWidget(QWidget):
             | Qt.WindowType.WindowStaysOnTopHint
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setAcceptDrops(True)  # 할일을 캐릭터로 끌어다 놓으면 삭제(휴지통)
 
         self._load_image()
         self._events.character_image_changed.connect(self._on_image_changed)
@@ -126,6 +128,10 @@ class CharacterWidget(QWidget):
         if delta.manhattanLength() >= QApplication.startDragDistance():
             self._moved = True
         self.move(self._clamp(self._press_frame + delta))
+        # 말풍선이 열려 있으면 같이 따라 이동 (뷰 재구성 없이 위치만)
+        if self._bubble.isVisible():
+            scr = self._screen_for(self.frameGeometry().center()).availableGeometry()
+            self._bubble.reposition_for_character(self.frameGeometry(), scr)
 
     def mouseReleaseEvent(self, e) -> None:
         if e.button() != Qt.MouseButton.LeftButton:
@@ -142,6 +148,24 @@ class CharacterWidget(QWidget):
         else:
             scr = self._screen_for(self.frameGeometry().center()).availableGeometry()
             self._bubble.show_for_character(self.frameGeometry(), scr)
+
+    # ── 휴지통(할일 드롭=삭제) ──────────────────────────────
+    def dragEnterEvent(self, e) -> None:
+        if e.mimeData().hasFormat(MIME_TODO):
+            e.setDropAction(Qt.DropAction.CopyAction)  # Copy = 삭제(휴지통) 의미
+            e.accept()
+
+    def dragMoveEvent(self, e) -> None:
+        if e.mimeData().hasFormat(MIME_TODO):
+            e.setDropAction(Qt.DropAction.CopyAction)
+            e.accept()
+
+    def dropEvent(self, e) -> None:
+        raw = bytes(e.mimeData().data(MIME_TODO)).decode()
+        tid_s, _src = raw.split("|", 1)
+        self._service.remove(int(tid_s))
+        e.setDropAction(Qt.DropAction.CopyAction)
+        e.accept()
 
     # ── 우클릭 메뉴 ─────────────────────────────────────────
     def _show_menu(self, global_pos: QPoint) -> None:

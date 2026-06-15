@@ -24,16 +24,6 @@ class TodoRepository:
         ).fetchall()
         return [Todo.from_row(r) for r in rows]
 
-    def counts_in_range(self, start_iso: str, end_iso: str) -> dict[str, int]:
-        """달력 점 표시용: 날짜별 미완료 개수."""
-        rows = self.conn.execute(
-            "SELECT due_date, COUNT(*) AS c FROM todos "
-            "WHERE hidden = 0 AND completed = 0 AND due_date BETWEEN ? AND ? "
-            "GROUP BY due_date",
-            (start_iso, end_iso),
-        ).fetchall()
-        return {r["due_date"]: r["c"] for r in rows}
-
     def get(self, todo_id: int) -> Todo | None:
         r = self.conn.execute(
             "SELECT * FROM todos WHERE id = ?", (todo_id,)

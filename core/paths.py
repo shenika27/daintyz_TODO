@@ -41,6 +41,14 @@ def project_root() -> Path:
     return Path(__file__).resolve().parent.parent
 
 
+def app_root() -> Path:
+    """번들/개발 양쪽에서 동작하는 앱 루트(VERSION 등 메타 파일 위치)."""
+    base = getattr(sys, "_MEIPASS", None)
+    if base:
+        return Path(base)
+    return project_root()
+
+
 def resource_dir() -> Path:
     """번들/개발 양쪽에서 동작하는 리소스 디렉토리."""
     base = getattr(sys, "_MEIPASS", None)

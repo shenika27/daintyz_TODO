@@ -1,4 +1,10 @@
-"""ui/bubble/month_view.py — 월간 뷰: 7x6 고정. 셀 클릭=날짜 선택, 드롭=그 날짜로 이동."""
+"""ui/bubble/month_view.py — 월간 뷰: 7x6 정사각형 그리드.
+
+각 날짜 셀(정사각형) = 날짜 숫자 + 할일 개수 뱃지.
+  - 단일 클릭  → 날짜 선택
+  - 더블 클릭  → 그 날짜의 일간 보기로 전환
+  - 항목 드롭  → 그 날짜로 이동
+"""
 from __future__ import annotations
 
 from datetime import date, timedelta
@@ -10,47 +16,47 @@ from domain import policies
 from ui.bubble.todo_item import MIME_TODO
 
 _WD = ["일", "월", "화", "수", "목", "금", "토"]
+CELL = 58  # 정사각형 셀 한 변(px)
 
 
 class MonthCell(QFrame):
     def __init__(self, d: date, anchor_month: int, selected: bool,
-                 count: int, service, select_cb, parent=None):
+                 count: int, service, select_cb, open_day_cb, parent=None):
         super().__init__(parent)
         self.iso = d.isoformat()
         self._service = service
         self._select_cb = select_cb
+        self._open_day_cb = open_day_cb
+        self.setObjectName("monthCell")
+        self.setProperty("selected", "true" if selected else "false")
+        self.setFixedSize(CELL, CELL)
         self.setAcceptDrops(True)
-        self.setFrameShape(QFrame.Shape.StyledPanel)
-        self.setMinimumSize(40, 38)
-
-        border = "2px solid #378ADD" if selected else "1px solid rgba(0,0,0,0.15)"
-        dim = "" if d.month == anchor_month else "color: rgba(0,0,0,0.35);"
-        self.setStyleSheet(f"MonthCell {{ border: {border}; border-radius: 4px; }}")
 
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(3, 2, 3, 2)
-        lay.setSpacing(0)
+        lay.setContentsMargins(4, 3, 4, 3)
+        lay.setSpacing(2)
         lay.setAlignment(Qt.AlignmentFlag.AlignTop)
 
-        # 1일이거나 그리드 시작이면 '월'도 함께 표기
         text = f"{d.month}/{d.day}" if d.day == 1 else str(d.day)
         head = QLabel(text)
+        head.setObjectName("dimDay" if d.month != anchor_month else "todoLabel")
         f = head.font()
         f.setPointSize(max(7, f.pointSize() - 2))
         head.setFont(f)
-        head.setStyleSheet(dim)
         lay.addWidget(head)
 
         if count > 0:
-            badge = QLabel(f"\u2022 {count}")
-            bf = badge.font()
-            bf.setPointSize(max(7, bf.pointSize() - 2))
-            badge.setFont(bf)
-            badge.setStyleSheet("color: #378ADD;")
-            lay.addWidget(badge)
+            badge = QLabel(str(count))
+            badge.setObjectName("countBadge")
+            badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            badge.setFixedSize(18, 18)
+            lay.addWidget(badge, 0, Qt.AlignmentFlag.AlignHCenter)
 
     def mousePressEvent(self, _e) -> None:
         self._select_cb(self.iso)
+
+    def mouseDoubleClickEvent(self, _e) -> None:
+        self._open_day_cb(self.iso)
 
     def dragEnterEvent(self, e) -> None:
         if e.mimeData().hasFormat(MIME_TODO):
@@ -69,29 +75,38 @@ class MonthCell(QFrame):
 
 
 class MonthView(QWidget):
-    def __init__(self, selected_iso: str, service, select_cb, parent=None):
+    def __init__(self, selected_iso: str, service, select_cb, open_day_cb, parent=None):
         super().__init__(parent)
         anchor = date.fromisoformat(selected_iso)
         grid_start, grid_end = policies.month_grid_range(anchor)
-        counts = service.counts_in_range(grid_start.isoformat(), grid_end.isoformat())
+
+        # 날짜별 할일 개수
+        service.ensure_range(grid_start.isoformat(), grid_end.isoformat())
+        counts: dict[str, int] = {}
+        cur = grid_start
+        while cur <= grid_end:
+            iso = cur.isoformat()
+            counts[iso] = len(service.list_for_date(iso))
+            cur += timedelta(days=1)
 
         lay = QGridLayout(self)
         lay.setContentsMargins(4, 4, 4, 4)
-        lay.setSpacing(2)
+        lay.setSpacing(3)
 
         for c in range(7):
             wd = QLabel(_WD[c])
+            wd.setObjectName("wdHead")
             wd.setAlignment(Qt.AlignmentFlag.AlignHCenter)
             f = wd.font()
             f.setPointSize(max(7, f.pointSize() - 2))
             wd.setFont(f)
             lay.addWidget(wd, 0, c)
 
-        for i in range(42):  # 7 x 6 고정
+        for i in range(42):
             d = grid_start + timedelta(days=i)
             iso = d.isoformat()
             cell = MonthCell(
                 d, anchor.month, iso == selected_iso,
-                counts.get(iso, 0), service, select_cb,
+                counts.get(iso, 0), service, select_cb, open_day_cb,
             )
-            lay.addWidget(cell, 1 + i // 7, i % 7)
+            lay.addWidget(cell, 1 + i // 7, i % 7, Qt.AlignmentFlag.AlignCenter)

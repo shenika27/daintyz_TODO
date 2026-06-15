@@ -1,30 +1,43 @@
 """ui/bubble/todo_item.py — 할일 한 줄 위젯.
 
 상호작용
-  - 왼쪽 체크박스 클릭        → 완료 토글 / 취소선
-  - hover 시 우측 연필 클릭   → 인라인 편집 (Enter 확정 / Esc·포커스아웃 해제)
-  - 본문 누른 채 이동         → 드래그 (정렬/날짜이동/외부드롭 삭제)
+  - 체크박스 / 본문 클릭        → 완료 토글
+  - hover 시 연필(편집)·휴지통(삭제) 아이콘 노출 (오른쪽 끝 고정, 휴지통이 맨 오른쪽)
+  - 본문 누른 채 이동           → 드래그 (요일/날짜 간 이동, 캐릭터에 드롭=삭제)
+  - 텍스트가 길면 말줄임표(…), 1.5초 이상 hover 시 전체 텍스트 툴팁
 """
 from __future__ import annotations
 
-from PyQt6.QtCore import QMimeData, QPoint, Qt, pyqtSignal
-from PyQt6.QtGui import QDrag, QFont
+from PyQt6.QtCore import QMimeData, QPoint, Qt, QTimer, pyqtSignal
+from PyQt6.QtGui import (
+    QColor,
+    QCursor,
+    QDrag,
+    QFont,
+    QFontMetrics,
+    QIcon,
+    QPainter,
+    QPen,
+    QPixmap,
+)
 from PyQt6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QToolButton,
+    QToolTip,
     QWidget,
 )
 
 from domain.models import Todo
 
 MIME_TODO = "application/x-character-todo"
+_TOOLTIP_DELAY_MS = 1500
 
 
 class TodoItem(QWidget):
-    # 외부 드롭 등으로 삭제 요청 시 (todo_id)
     request_remove = pyqtSignal(int)
 
     def __init__(self, todo: Todo, service, compact: bool = False, parent=None):
@@ -33,19 +46,27 @@ class TodoItem(QWidget):
         self._service = service
         self._compact = compact
         self._press_pos: QPoint | None = None
+        self._dragged = False
         self._editing = False
 
+        self.setObjectName("todoRow")
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+
         lay = QHBoxLayout(self)
-        lay.setContentsMargins(2, 1, 2, 1)
-        lay.setSpacing(4)
+        lay.setContentsMargins(8, 4, 6, 4)
+        lay.setSpacing(6)
 
         self.check = QCheckBox()
         self.check.setChecked(todo.completed)
-        self.check.stateChanged.connect(self._on_toggle)
+        self.check.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.check.stateChanged.connect(self._on_checkbox)
         lay.addWidget(self.check)
 
-        self.label = QLabel(todo.content)
+        self.label = QLabel()
+        self.label.setObjectName("todoLabel")
+        self.label.setProperty("state", "done" if todo.completed else "active")
         self.label.setWordWrap(False)
+        self.label.setMinimumWidth(0)
         self._apply_strike()
         lay.addWidget(self.label, 1)
 
@@ -55,19 +76,39 @@ class TodoItem(QWidget):
         self.editor.editingFinished.connect(self._commit_edit)
         lay.addWidget(self.editor, 1)
 
+        # hover 편집/삭제 (오른쪽 끝 고정: 연필 → 휴지통 순, 간격 좁게)
         self.pencil = QToolButton()
-        self.pencil.setText("\u270e")  # ✎
-        self.pencil.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.pencil.setObjectName("pencilBtn")
+        self.pencil.setIcon(QIcon(_pencil_pixmap()))
         self.pencil.setAutoRaise(True)
+        self.pencil.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.pencil.setFixedSize(20, 20)
         self.pencil.setVisible(False)
         self.pencil.clicked.connect(self._enter_edit)
+
+        self.xbtn = QToolButton()
+        self.xbtn.setObjectName("xBtn")
+        self.xbtn.setIcon(QIcon(_trash_pixmap(16, "#D85A30")))
+        self.xbtn.setAutoRaise(True)
+        self.xbtn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.xbtn.setFixedSize(20, 20)
+        self.xbtn.setVisible(False)
+        self.xbtn.clicked.connect(lambda: self.request_remove.emit(self.todo.id))
+
         if not compact:
+            lay.addSpacing(2)
             lay.addWidget(self.pencil)
+            lay.addWidget(self.xbtn)
 
         self.setMouseTracking(True)
+        self.setToolTip("")  # 기본 툴팁 끔 (직접 1.5초 후 표시)
+        self._tip_timer = QTimer(self)
+        self._tip_timer.setSingleShot(True)
+        self._tip_timer.setInterval(_TOOLTIP_DELAY_MS)
+        self._tip_timer.timeout.connect(self._show_tooltip)
 
     # ── 완료 토글 ───────────────────────────────────────────
-    def _on_toggle(self, _state: int) -> None:
+    def _on_checkbox(self, _state: int) -> None:
         if self._editing:
             return
         self._service.toggle(self.todo.id)
@@ -76,13 +117,26 @@ class TodoItem(QWidget):
         f: QFont = self.label.font()
         f.setStrikeOut(self.todo.completed)
         self.label.setFont(f)
-        self.label.setEnabled(not self.todo.completed)
+        self._update_elision()
+
+    # ── 말줄임 ──────────────────────────────────────────────
+    def _update_elision(self) -> None:
+        fm = QFontMetrics(self.label.font())
+        w = max(10, self.label.width())
+        self.label.setText(fm.elidedText(self.todo.content, Qt.TextElideMode.ElideRight, w))
+
+    def resizeEvent(self, e) -> None:
+        super().resizeEvent(e)
+        if not self._editing:
+            self._update_elision()
 
     # ── 편집 ────────────────────────────────────────────────
     def _enter_edit(self) -> None:
         self._editing = True
         self.editor.setText(self.todo.content)
         self.label.setVisible(False)
+        self.pencil.setVisible(False)
+        self.xbtn.setVisible(False)
         self.editor.setVisible(True)
         self.editor.setFocus()
         self.editor.selectAll()
@@ -96,39 +150,102 @@ class TodoItem(QWidget):
         self.label.setVisible(True)
         if text and text != self.todo.content:
             self._service.edit(self.todo.id, text)
-        # 실제 갱신은 todos_changed 시그널로 다시 그려진다
 
-    # ── hover 연필 ──────────────────────────────────────────
+    # ── hover: 아이콘 + 1.5초 툴팁 ──────────────────────────
     def enterEvent(self, _e) -> None:
         if not self._compact and not self._editing:
             self.pencil.setVisible(True)
+            self.xbtn.setVisible(True)
+        self._tip_timer.start()
 
     def leaveEvent(self, _e) -> None:
         self.pencil.setVisible(False)
+        self.xbtn.setVisible(False)
+        self._tip_timer.stop()
+        QToolTip.hideText()
 
-    # ── 드래그 ──────────────────────────────────────────────
+    def _show_tooltip(self) -> None:
+        if self.underMouse() and not self._editing:
+            QToolTip.showText(QCursor.pos(), self.todo.content, self)
+
+    # ── 마우스: 클릭=토글 / 드래그=이동 ─────────────────────
     def mousePressEvent(self, e) -> None:
         if e.button() == Qt.MouseButton.LeftButton:
             self._press_pos = e.position().toPoint()
-        super().mousePressEvent(e)
+            self._dragged = False
+            e.accept()        # 이 위젯이 마우스를 잡아야 move 이벤트가 들어와 드래그가 시작됨
+        else:
+            super().mousePressEvent(e)
 
     def mouseMoveEvent(self, e) -> None:
         if self._press_pos is None or self._editing:
             return
-        from PyQt6.QtWidgets import QApplication
-
         dist = (e.position().toPoint() - self._press_pos).manhattanLength()
         if dist < QApplication.startDragDistance():
             return
         self._start_drag()
 
+    def mouseReleaseEvent(self, e) -> None:
+        if e.button() != Qt.MouseButton.LeftButton:
+            return
+        if not self._dragged and not self._editing and self._press_pos is not None:
+            self._service.toggle(self.todo.id)   # 본문 클릭 = 완료 토글
+        self._press_pos = None
+
     def _start_drag(self) -> None:
+        self._dragged = True
+        self._tip_timer.stop()
         drag = QDrag(self)
         mime = QMimeData()
         mime.setData(MIME_TODO, f"{self.todo.id}|{self.todo.due_date}".encode())
         drag.setMimeData(mime)
-        result = drag.exec(Qt.DropAction.MoveAction)
+        # 캐릭터(휴지통) 위 = Copy 액션 → 휴지통 커서. 날짜 칸 = Move → 기본 커서.
+        drag.setDragCursor(_trash_pixmap(30, "#E5484D"), Qt.DropAction.CopyAction)
+        drag.exec(Qt.DropAction.MoveAction | Qt.DropAction.CopyAction)
         self._press_pos = None
-        # 어떤 위젯도 받지 않았다면(앱 외부 드롭) 삭제
-        if result == Qt.DropAction.IgnoreAction:
-            self.request_remove.emit(self.todo.id)
+        # 삭제는 캐릭터에 드롭 시 캐릭터 쪽에서 처리.
+
+
+# ── 아이콘 그리기 (테마 무관, 직접 렌더) ────────────────────
+def _trash_pixmap(size: int, color: str) -> QPixmap:
+    """휴지통 아이콘 픽스맵."""
+    pm = QPixmap(size, size)
+    pm.fill(QColor(0, 0, 0, 0))
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    pen = QPen(QColor(color))
+    pen.setWidthF(max(1.4, size * 0.07))
+    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+    pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+    p.setPen(pen)
+    s = size
+    # 손잡이
+    p.drawLine(int(s * 0.40), int(s * 0.22), int(s * 0.60), int(s * 0.22))
+    # 뚜껑
+    p.drawLine(int(s * 0.24), int(s * 0.32), int(s * 0.76), int(s * 0.32))
+    # 통 몸체
+    p.drawLine(int(s * 0.30), int(s * 0.32), int(s * 0.34), int(s * 0.80))
+    p.drawLine(int(s * 0.70), int(s * 0.32), int(s * 0.66), int(s * 0.80))
+    p.drawLine(int(s * 0.34), int(s * 0.80), int(s * 0.66), int(s * 0.80))
+    # 세로 줄
+    p.drawLine(int(s * 0.50), int(s * 0.40), int(s * 0.50), int(s * 0.72))
+    p.end()
+    return pm
+
+
+def _pencil_pixmap() -> QPixmap:
+    size = 16
+    pm = QPixmap(size, size)
+    pm.fill(QColor(0, 0, 0, 0))
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    pen = QPen(QColor("#8A8A86"))
+    pen.setWidthF(1.4)
+    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+    p.setPen(pen)
+    s = size
+    p.drawLine(int(s * 0.30), int(s * 0.72), int(s * 0.72), int(s * 0.30))
+    p.drawLine(int(s * 0.30), int(s * 0.72), int(s * 0.24), int(s * 0.78))
+    p.drawLine(int(s * 0.66), int(s * 0.24), int(s * 0.78), int(s * 0.36))
+    p.end()
+    return pm

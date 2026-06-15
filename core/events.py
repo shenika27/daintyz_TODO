@@ -11,11 +11,9 @@ from PyQt6.QtCore import QObject, pyqtSignal
 class EventBus(QObject):
     # 데이터가 바뀌어 특정 날짜를 다시 그려야 할 때 (ISO 'YYYY-MM-DD')
     todos_changed = pyqtSignal(str)
-    # 설정이 바뀌었을 때 (key)
-    setting_changed = pyqtSignal(str)
     # 캐릭터 이미지 경로가 바뀌었을 때
     character_image_changed = pyqtSignal(str)
-    # 선택 날짜가 바뀌었을 때 (ISO)
-    selected_date_changed = pyqtSignal(str)
     # 방금 삭제한 항목을 되돌릴 수 있게 됨 (revert 버튼 노출용)
     delete_undo_available = pyqtSignal(bool)
+    # 테마(밝게/어둡게/자동)가 바뀌었을 때
+    theme_changed = pyqtSignal()

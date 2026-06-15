@@ -15,7 +15,6 @@ from PyQt6.QtWidgets import (
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
-    QLabel,
     QLineEdit,
     QListWidget,
     QListWidgetItem,
@@ -33,6 +32,15 @@ log = logging.getLogger(__name__)
 _WD = ["일", "월", "화", "수", "목", "금", "토"]
 
 
+def _app_version() -> str:
+    from core import paths
+
+    try:
+        return (paths.app_root() / "VERSION").read_text(encoding="utf-8").strip()
+    except Exception:  # noqa: BLE001
+        return "?"
+
+
 class SettingsDialog(QDialog):
     def __init__(self, settings_repo, events, backup_service, autostart_service,
                  recurring_repo, parent=None):
@@ -43,7 +51,7 @@ class SettingsDialog(QDialog):
         self._autostart = autostart_service
         self._rules = recurring_repo
 
-        self.setWindowTitle("설정")
+        self.setWindowTitle(f"설정 — v{_app_version()}")
         self.resize(420, 480)
 
         tabs = QTabWidget()
@@ -90,6 +98,15 @@ class SettingsDialog(QDialog):
         )
         form.addRow("월 마지막날 규칙", self._overflow)
 
+        # 테마
+        self._theme = QComboBox()
+        self._theme.addItem("자동 (시스템)", "system")
+        self._theme.addItem("밝게", "light")
+        self._theme.addItem("어둡게", "dark")
+        self._select_data(self._theme, self._settings.get(policies.KEY_THEME, "system"))
+        self._theme.currentIndexChanged.connect(self._change_theme)
+        form.addRow("테마", self._theme)
+
         # 자동시작
         self._autostart_cb = QCheckBox("로그인 시 자동 시작")
         if self._autostart.supported:
@@ -126,6 +143,10 @@ class SettingsDialog(QDialog):
             self._img_edit.setText(path)
             self._settings.set(policies.KEY_IMAGE_PATH, path)
             self._events.character_image_changed.emit(path)
+
+    def _change_theme(self) -> None:
+        self._settings.set(policies.KEY_THEME, self._theme.currentData())
+        self._events.theme_changed.emit()
 
     def _toggle_autostart(self, on: bool) -> None:
         self._autostart.set_enabled(on)

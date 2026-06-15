@@ -12,6 +12,7 @@ KEY_LAST_X = "character.last_x"
 KEY_LAST_Y = "character.last_y"
 KEY_AUTOSTART = "app.autostart"             # '0' | '1'
 KEY_LAST_VIEW = "bubble.last_view"          # 'day' | 'week' | 'month'
+KEY_THEME = "app.theme"                      # 'light' | 'dark' | 'system'
 
 
 def app_weekday(d: date) -> int:

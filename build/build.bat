@@ -10,7 +10,7 @@ cd /d "%~dp0\.."
 set "LOG=%~dp0build_log.txt"
 echo Build started > "%LOG%"
 
-echo [1/4] Preparing virtual environment
+echo [1/5] Preparing virtual environment
 if not exist .venv (
     python -m venv .venv 1>>"%LOG%" 2>>&1
 )
@@ -20,7 +20,7 @@ if errorlevel 1 (
     goto :fail
 )
 
-echo [2/4] Installing dependencies
+echo [2/5] Installing dependencies
 pip install --upgrade pip 1>>"%LOG%" 2>>&1
 pip install -r requirements.txt 1>>"%LOG%" 2>>&1
 pip install pyinstaller 1>>"%LOG%" 2>>&1
@@ -29,7 +29,12 @@ if errorlevel 1 (
     goto :fail
 )
 
-echo [3/4] Running PyInstaller
+echo [3/5] Cleaning previous build artifacts
+if exist build\build rmdir /S /Q build\build
+if exist dist rmdir /S /Q dist
+for /r %%d in (__pycache__) do if exist "%%d" rmdir /S /Q "%%d"
+
+echo [4/5] Running PyInstaller
 pyinstaller --noconfirm --clean build\character_todo.spec 1>>"%LOG%" 2>>&1
 if errorlevel 1 (
     echo PyInstaller build failed. See %LOG%
@@ -37,7 +42,7 @@ if errorlevel 1 (
 )
 echo     -^> dist\CharacterTodo\CharacterTodo.exe created
 
-echo [4/4] Building installer with Inno Setup
+echo [5/5] Building installer with Inno Setup
 set "ISCC="
 where iscc >nul 2>nul
 if not errorlevel 1 (
@@ -59,7 +64,7 @@ if errorlevel 1 (
     echo Inno Setup build failed. See %LOG%
     goto :fail
 )
-echo     -^> build\installer_out\CharacterTodo-Setup-0.1.0.exe created
+echo     -^> build\installer_out\CharacterTodo-Setup-0.2.5.exe created
 
 :done
 echo.

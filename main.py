@@ -85,14 +85,26 @@ class AppController:
             self.character.raise_()
 
     def quit_app(self) -> None:
+        if getattr(self, "_quitting", False):
+            return
+        self._quitting = True
         try:
             self.notification.stop()
+            self.tray.hide()          # 트레이 잔상/지연 방지: 먼저 내림
+            self.bubble.hide()
             self.character._save_position()
+            self.character.hide()
         except Exception:  # noqa: BLE001
-            log.exception("save on quit failed")
+            log.exception("정리 중 오류")
         finally:
-            self.db.close()
-            self.app.quit()
+            try:
+                self.db.close()
+            except Exception:  # noqa: BLE001
+                log.exception("db close 오류")
+            # 메뉴/트리거 콜백 스택이 풀린 뒤 종료하도록 다음 틱으로 미룸
+            from PyQt6.QtCore import QTimer
+
+            QTimer.singleShot(0, self.app.quit)
 
     def run(self) -> None:
         self.character.show()
