@@ -26,6 +26,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from core import feature_flags
 from domain import policies
 
 log = logging.getLogger(__name__)
@@ -69,14 +70,12 @@ class SettingsDialog(QDialog):
         w = QWidget()
         form = QFormLayout(w)
 
-        # 캐릭터 이미지
-        img_row = QHBoxLayout()
-        self._img_edit = QLineEdit(self._settings.get(policies.KEY_IMAGE_PATH, "") or "")
-        browse = QPushButton("찾아보기")
-        browse.clicked.connect(self._pick_image)
-        img_row.addWidget(self._img_edit)
-        img_row.addWidget(browse)
-        form.addRow("캐릭터 이미지", img_row)
+        # 캐릭터 이미지 (상황별). 비우면 기본 이미지로 표시됨.
+        # 빌드에서 캐릭터 변경을 끈 경우(미지원) 이미지 칸을 숨긴다.
+        if feature_flags.character_edit_enabled():
+            self._add_image_row(form, "이미지 · 기본", policies.KEY_IMAGE_PATH)
+            self._add_image_row(form, "이미지 · 밀린 할일", policies.KEY_IMAGE_OVERDUE)
+            self._add_image_row(form, "이미지 · 삭제 시", policies.KEY_IMAGE_DELETE)
 
         # 미완료 처리
         self._incomplete = QComboBox()
@@ -135,14 +134,31 @@ class SettingsDialog(QDialog):
         if idx >= 0:
             combo.setCurrentIndex(idx)
 
-    def _pick_image(self) -> None:
+    def _add_image_row(self, form: QFormLayout, label: str, key: str) -> None:
+        edit = QLineEdit(self._settings.get(key, "") or "")
+        edit.editingFinished.connect(lambda: self._apply_image(key, edit.text().strip(), edit))
+        browse = QPushButton("찾아보기")
+        browse.clicked.connect(lambda: self._pick_image(key, edit))
+        clear = QPushButton("지움")
+        clear.setToolTip("비우면 기본 이미지로 표시")
+        clear.clicked.connect(lambda: self._apply_image(key, "", edit))
+        row = QHBoxLayout()
+        row.addWidget(edit)
+        row.addWidget(browse)
+        row.addWidget(clear)
+        form.addRow(label, row)
+
+    def _pick_image(self, key: str, edit: QLineEdit) -> None:
         path, _ = QFileDialog.getOpenFileName(
             self, "캐릭터 이미지 선택", "", "이미지 (*.png *.jpg *.jpeg *.gif *.webp)"
         )
         if path:
-            self._img_edit.setText(path)
-            self._settings.set(policies.KEY_IMAGE_PATH, path)
-            self._events.character_image_changed.emit(path)
+            self._apply_image(key, path, edit)
+
+    def _apply_image(self, key: str, path: str, edit: QLineEdit) -> None:
+        edit.setText(path)
+        self._settings.set(key, path)
+        self._events.character_image_changed.emit(path)
 
     def _change_theme(self) -> None:
         self._settings.set(policies.KEY_THEME, self._theme.currentData())

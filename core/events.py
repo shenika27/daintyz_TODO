@@ -17,3 +17,5 @@ class EventBus(QObject):
     delete_undo_available = pyqtSignal(bool)
     # 테마(밝게/어둡게/자동)가 바뀌었을 때
     theme_changed = pyqtSignal()
+    # 밀린 할일 패널 표시 여부가 바뀌었을 때 (True=표시)
+    overdue_panel_changed = pyqtSignal(bool)

@@ -1,8 +1,10 @@
 ; installer.iss — Inno Setup 설치 스크립트 (Windows .exe 설치본 생성)
-; 사전: PyInstaller 로 dist\CharacterTodo\ 가 만들어져 있어야 함 (build.bat 이 처리).
+; 선택 단계: 단일 exe(dist\CharacterTodo.exe)를 설치본으로 감쌀 때만 사용.
+; 기본 배포는 dist\CharacterTodo.exe 하나만 전달하면 되며 이 단계는 불필요하다.
+; 사전: PyInstaller(onefile)로 dist\CharacterTodo.exe 가 만들어져 있어야 함.
 
 #define AppName "Character TODO"
-#define AppVersion "0.2.6"
+#define AppVersion "0.3.0"
 #define AppExe "CharacterTodo.exe"
 
 [Setup]
@@ -26,7 +28,7 @@ Name: "desktopicon"; Description: "바탕화면 바로가기 생성"; GroupDescr
 Name: "autostart"; Description: "로그인 시 자동 시작"; GroupDescription: "추가 작업:"; Flags: unchecked
 
 [Files]
-Source: "..\dist\CharacterTodo\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs
+Source: "..\dist\CharacterTodo.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "uninstall_all.bat"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]

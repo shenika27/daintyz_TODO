@@ -5,8 +5,6 @@
 """
 from __future__ import annotations
 
-from pathlib import Path
-
 from PyQt6.QtCore import QPointF, Qt
 from PyQt6.QtGui import QColor, QPainter, QPen, QPixmap
 from PyQt6.QtWidgets import QApplication
@@ -27,6 +25,7 @@ LIGHT = {
     "accent_text": "#3C3489",
     "check_border": "#B4B2A9",
     "red": "#D85A30",
+    "ok": "#2E9E5B",
     "dim": "#A3A29C",
 }
 
@@ -42,6 +41,7 @@ DARK = {
     "accent_text": "#CECBF6",
     "check_border": "#5C5C66",
     "red": "#F09595",
+    "ok": "#5BC081",
     "dim": "#6E6E78",
 }
 
@@ -121,7 +121,10 @@ def qss(mode: str | None) -> str:
 }}
 #bubbleRoot QLabel#countBadge {{
     color: white; background: {c['accent']};
-    border-radius: 9px; font-size: 10px;
+    border-radius: 8px; font-size: 9px;
+}}
+#bubbleRoot QLabel#doneCount {{
+    color: {c['ok']}; font-size: 9px; font-weight: bold;
 }}
 
 #bubbleRoot QToolButton {{
@@ -162,6 +165,12 @@ def qss(mode: str | None) -> str:
     border: 1.5px solid {c['accent']}; border-radius: 5px;
     background: {c['accent']}; image: url({check_url});
 }}
+
+#bubbleRoot QLabel#overdueTitle {{ color: {c['sub']}; }}
+#bubbleRoot QLabel#overdueRow {{
+    color: {c['text']}; padding: 4px 6px; border-radius: 7px;
+}}
+#bubbleRoot QLabel#overdueRow:hover {{ background: {c['surface']}; }}
 
 #bubbleRoot QFrame#dayCol {{ border: 1px solid {c['border']}; border-radius: 8px; }}
 #bubbleRoot QFrame#dayCol[selected="true"] {{ border: 2px solid {c['accent']}; }}

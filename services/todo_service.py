@@ -33,6 +33,14 @@ class TodoService:
             date.fromisoformat(start_iso), date.fromisoformat(end_iso)
         )
 
+    def has_overdue(self, today_iso: str) -> bool:
+        """오늘 이전에 미완료 할일이 남아 있는지(캐릭터 상태 표시용)."""
+        return self._repo.has_incomplete_before(today_iso)
+
+    def overdue_counts(self, today_iso: str) -> list[tuple[str, int]]:
+        """오늘 이전 미완료 할일을 날짜별 개수로(밀린 할일 패널용)."""
+        return self._repo.incomplete_counts_before(today_iso)
+
     # ── 쓰기 ────────────────────────────────────────────────
     def add(self, content: str, iso: str) -> None:
         content = content.strip()

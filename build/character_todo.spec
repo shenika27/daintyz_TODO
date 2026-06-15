@@ -28,25 +28,21 @@ a = Analysis(
 )
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
+# onefile: 모든 바이너리/리소스/코드를 단일 exe(dist\CharacterTodo.exe) 안에 포함.
+# 실행 시에만 임시폴더로 풀려 동작 → 배포 시 exe 하나만 전달하면 됨.
 exe = EXE(
     pyz,
     a.scripts,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
     [],
-    exclude_binaries=True,
     name="CharacterTodo",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=False,              # UPX 압축 비활성 → 빌드 속도↑(대신 exe 용량↑)
+    runtime_tmpdir=None,
     console=False,          # GUI 앱: 콘솔 창 숨김
     icon=icon,
-)
-coll = COLLECT(
-    exe,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
-    strip=False,
-    upx=True,
-    name="CharacterTodo",
 )

@@ -9,17 +9,54 @@
 from __future__ import annotations
 
 import logging
+from datetime import date
 
-from PyQt6.QtCore import QPoint, Qt
-from PyQt6.QtGui import QAction, QBrush, QColor, QPainter, QPixmap
+from PyQt6.QtCore import QPoint, QSize, Qt
+from PyQt6.QtGui import (
+    QAction,
+    QBrush,
+    QColor,
+    QImageReader,
+    QMovie,
+    QPainter,
+    QPixmap,
+)
 from PyQt6.QtWidgets import QApplication, QMenu, QWidget
 
+from core import paths
 from domain import policies
 from ui.bubble.todo_item import MIME_TODO
 
 log = logging.getLogger(__name__)
 
 _DEFAULT_SIZE = 96
+# 상황별 이미지 미설정 시 resources\ 에서 찾는 파일 베이스명(번들 폴백).
+#   잠금 빌드(설정에서 변경 불가)에서도 파일만 넣으면 상황별 이미지가 적용된다.
+#   default 외 상황 파일이 없으면 default 로, default 도 없으면 코드 placeholder.
+_FALLBACK_BASE = {
+    "default": "character_default",
+    "overdue": "character_overdue",
+    "delete": "character_delete",
+}
+_FALLBACK_EXTS = (".png", ".gif")  # 우선순위 순(둘 다 있으면 png)
+
+# 상황 → 설정 키. 'default' 는 기본 이미지, 나머지는 없으면 default 로 폴백.
+_IMAGE_KEYS = {
+    "default": policies.KEY_IMAGE_PATH,
+    "overdue": policies.KEY_IMAGE_OVERDUE,
+    "delete": policies.KEY_IMAGE_DELETE,
+}
+
+
+def _bundled_fallback(situation: str) -> str | None:
+    """resources\\ 에서 상황별 폴백 이미지 경로를 찾는다(png→gif 순). 없으면 None."""
+    base = _FALLBACK_BASE[situation]
+    res_dir = paths.resource_dir()
+    for ext in _FALLBACK_EXTS:
+        cand = res_dir / (base + ext)
+        if cand.exists():
+            return str(cand)
+    return None
 
 
 class CharacterWidget(QWidget):
@@ -31,7 +68,10 @@ class CharacterWidget(QWidget):
         self._bubble = bubble
         self._controller = controller
 
-        self._pixmap: QPixmap | None = None
+        self._pixmaps: dict[str, QPixmap | None] = {}
+        self._movies: dict[str, QMovie | None] = {}  # 애니메이션 GIF 상황별
+        self._situation = "default"   # 'default' | 'overdue' | 'delete'
+        self._overdue = False
         self._press_global: QPoint | None = None
         self._press_frame: QPoint | None = None
         self._moved = False
@@ -44,35 +84,111 @@ class CharacterWidget(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setAcceptDrops(True)  # 할일을 캐릭터로 끌어다 놓으면 삭제(휴지통)
 
-        self._load_image()
+        self._load_images()
+        self._refresh_overdue()
         self._events.character_image_changed.connect(self._on_image_changed)
+        self._events.todos_changed.connect(lambda _iso: self._refresh_overdue())
         self._restore_position()
 
     # ── 이미지 ──────────────────────────────────────────────
-    def _load_image(self) -> None:
-        path = self._settings.get(policies.KEY_IMAGE_PATH)
-        pm = QPixmap(path) if path else QPixmap()
-        if not pm.isNull():
-            self._pixmap = pm.scaled(
-                _DEFAULT_SIZE * 2,
-                _DEFAULT_SIZE * 2,
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
-            )
-            self.resize(self._pixmap.size())
-        else:
-            self._pixmap = None
-            self.resize(_DEFAULT_SIZE, _DEFAULT_SIZE)
+    def _load_images(self) -> None:
+        """상황별 이미지를 모두 읽어둔다. GIF 는 QMovie(애니메이션), 그 외는 QPixmap.
+        미설정/없음이면 None → 그릴 때 default 로 폴백. 위젯 크기는 기본 이미지 기준 고정."""
+        for m in self._movies.values():  # 재로드 전 기존 무비 정지
+            if m is not None:
+                m.stop()
+        self._pixmaps = {}
+        self._movies = {}
+        for sit, key in _IMAGE_KEYS.items():
+            path = self._settings.get(key) or _bundled_fallback(sit)
+            pm, movie = self._load_source(path)
+            if movie is not None:
+                movie.frameChanged.connect(self.update)
+            self._pixmaps[sit] = pm
+            self._movies[sit] = movie
+
+        size = self._source_size("default") or QSize(_DEFAULT_SIZE, _DEFAULT_SIZE)
+        self.resize(size)
+        self._update_active_movie()
         self.update()
 
+    def _load_source(self, path: str | None) -> tuple[QPixmap | None, QMovie | None]:
+        """경로 → (pixmap, movie). 애니메이션 GIF 면 movie, 그 외 정적 pixmap."""
+        if not path:
+            return None, None
+        box = _DEFAULT_SIZE * 2
+        if path.lower().endswith(".gif"):
+            movie = QMovie(path)
+            if movie.isValid():
+                movie.setCacheMode(QMovie.CacheMode.CacheAll)
+                native = QImageReader(path).size()
+                if native.isValid() and (native.width() > box or native.height() > box):
+                    movie.setScaledSize(native.scaled(box, box, Qt.AspectRatioMode.KeepAspectRatio))
+                return None, movie
+        pm = QPixmap(path)
+        if pm.isNull():
+            return None, None
+        pm = pm.scaled(box, box, Qt.AspectRatioMode.KeepAspectRatio,
+                       Qt.TransformationMode.SmoothTransformation)
+        return pm, None
+
+    def _resolved_situation(self) -> str:
+        """현재 상황(소스 없으면 default 로 폴백)."""
+        sit = self._situation
+        if self._pixmaps.get(sit) is None and self._movies.get(sit) is None:
+            return "default"
+        return sit
+
+    def _source_size(self, sit: str) -> QSize | None:
+        pm = self._pixmaps.get(sit)
+        if pm is not None:
+            return pm.size()
+        movie = self._movies.get(sit)
+        if movie is not None:
+            s = movie.scaledSize()
+            if s.isValid() and not s.isEmpty():
+                return s
+            movie.jumpToFrame(0)
+            return movie.currentPixmap().size()
+        return None
+
+    def _update_active_movie(self) -> None:
+        """현재 상황의 무비만 재생하고 나머지는 멈춘다(불필요한 CPU 방지)."""
+        active = self._movies.get(self._resolved_situation())
+        for m in self._movies.values():
+            if m is None:
+                continue
+            if m is active:
+                if m.state() != QMovie.MovieState.Running:
+                    m.start()
+            elif m.state() == QMovie.MovieState.Running:
+                m.stop()
+
+    def _set_situation(self, sit: str) -> None:
+        if sit != self._situation:
+            self._situation = sit
+            self._update_active_movie()
+            self.update()
+
+    def _refresh_overdue(self) -> None:
+        """오늘 이전 미달성 여부를 다시 계산해 (드래그 중이 아니면) 상태 반영."""
+        self._overdue = self._service.has_overdue(date.today().isoformat())
+        if self._situation != "delete":
+            self._set_situation("overdue" if self._overdue else "default")
+
     def _on_image_changed(self, _path: str) -> None:
-        self._load_image()
+        self._load_images()
 
     def paintEvent(self, _e) -> None:
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        if self._pixmap is not None:
-            p.drawPixmap(0, 0, self._pixmap)
+        sit = self._resolved_situation()
+        movie = self._movies.get(sit)
+        pm = movie.currentPixmap() if movie is not None else self._pixmaps.get(sit)
+        if pm is not None and not pm.isNull():
+            x = (self.width() - pm.width()) // 2
+            y = (self.height() - pm.height()) // 2
+            p.drawPixmap(x, y, pm)
         else:
             self._paint_placeholder(p)
 
@@ -153,6 +269,7 @@ class CharacterWidget(QWidget):
     def dragEnterEvent(self, e) -> None:
         if e.mimeData().hasFormat(MIME_TODO):
             e.setDropAction(Qt.DropAction.CopyAction)  # Copy = 삭제(휴지통) 의미
+            self._set_situation("delete")              # 삭제 상황 이미지로 전환
             e.accept()
 
     def dragMoveEvent(self, e) -> None:
@@ -160,27 +277,47 @@ class CharacterWidget(QWidget):
             e.setDropAction(Qt.DropAction.CopyAction)
             e.accept()
 
+    def dragLeaveEvent(self, _e) -> None:
+        self._restore_situation()
+
     def dropEvent(self, e) -> None:
         raw = bytes(e.mimeData().data(MIME_TODO)).decode()
         tid_s, _src = raw.split("|", 1)
         self._service.remove(int(tid_s))
         e.setDropAction(Qt.DropAction.CopyAction)
         e.accept()
+        self._restore_situation()  # 삭제 후 overdue/default 로 복귀
+
+    def _restore_situation(self) -> None:
+        self._set_situation("overdue" if self._overdue else "default")
 
     # ── 우클릭 메뉴 ─────────────────────────────────────────
     def _show_menu(self, global_pos: QPoint) -> None:
         menu = QMenu(self)
         a_set = QAction("설정", self)
         a_set.triggered.connect(self._controller.open_settings)
+
+        a_overdue = QAction("밀린할일 표시", self)
+        a_overdue.setCheckable(True)
+        a_overdue.setChecked(
+            (self._settings.get(policies.KEY_OVERDUE_PANEL, "1") or "1") == "1"
+        )
+        a_overdue.toggled.connect(self._toggle_overdue_panel)
+
         a_min = QAction("트레이로 최소화", self)
         a_min.triggered.connect(self._controller.minimize_to_tray)
         a_quit = QAction("종료", self)
         a_quit.triggered.connect(self._controller.quit_app)
         menu.addAction(a_set)
+        menu.addAction(a_overdue)
         menu.addAction(a_min)
         menu.addSeparator()
         menu.addAction(a_quit)
         menu.exec(global_pos)
+
+    def _toggle_overdue_panel(self, on: bool) -> None:
+        self._settings.set(policies.KEY_OVERDUE_PANEL, "1" if on else "0")
+        self._events.overdue_panel_changed.emit(on)
 
     def closeEvent(self, e) -> None:
         self._save_position()

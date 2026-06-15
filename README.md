@@ -30,16 +30,31 @@ python main.py
 - macOS: `~/Library/Application Support/CharacterTodo/todo.db`
 - Linux: `~/.local/share/CharacterTodo/todo.db`
 
-## 빌드 (Windows 설치본 .exe)
+## 빌드 (Windows 단일 .exe)
 
 ```bat
 build\build.bat
 ```
 
-- 1차 산출물: `dist\CharacterTodo\CharacterTodo.exe` (PyInstaller)
-- 2차 산출물: `build\installer_out\CharacterTodo-Setup-x.y.z.exe` (Inno Setup 설치 시)
-  - Inno Setup 6 미설치면 이 단계는 건너뛰고 exe 만 생성됩니다.
-  - 다운로드: https://jrsoftware.org/isdl.php
+- 산출물: **`dist\CharacterTodo.exe` 단일 파일** (PyInstaller onefile). 이 exe 하나만 전달하면 됩니다.
+  - 코드·리소스가 exe 안에 포함되어 실행 시 임시폴더로 풀려 동작합니다.
+  - 단, onefile은 "숨김"이지 암호화가 아닙니다(전용 도구로 추출 가능).
+- 빌드 시 묻는 항목:
+  - **캐릭터 변경 지원 여부 (Y/n)**: `Y`(기본)=설정에서 캐릭터 이미지 변경 가능 / `n`=변경 칸 숨김(고정 캐릭터).
+    환경변수로도 지정: `set CHARACTER_EDIT=0` 후 빌드.
+- **상황별 캐릭터 이미지(번들 폴백)**: 설정에서 지정하지 않으면 `resources\` 의 아래 파일을 사용합니다.
+  잠금 빌드(`CHARACTER_EDIT=0`)에서도 파일만 넣으면 적용됩니다. 확장자는 `.png` → `.gif` 순으로 찾습니다.
+
+  | 상황 | 파일명(베이스) | 필수 |
+  |------|---------------|------|
+  | 기본(오늘·평상시) | `character_default.png` / `.gif` | 필수(없으면 코드로 그린 기본 캐릭터) |
+  | 밀린 할일 있을 때 | `character_overdue.png` / `.gif` | 선택(없으면 기본으로 폴백) |
+  | 삭제(캐릭터에 끌어다 둘 때) | `character_delete.png` / `.gif` | 선택(없으면 기본으로 폴백) |
+
+  우선순위는 삭제 > 밀린 할일 > 기본. 투명 배경 권장이며 앱이 비율 유지로 축소합니다.
+  **GIF는 애니메이션으로 재생됩니다**(현재 상황의 GIF만 재생). PNG는 정지 이미지입니다.
+- 설치본(선택): Inno Setup 설치 후 `set MAKE_INSTALLER=1` 로 빌드하면
+  `build\installer_out\CharacterTodo-Setup-x.y.z.exe` 도 생성됩니다(보통은 불필요).
 - 트레이/exe 아이콘을 바꾸려면 `resources\app.ico` 를 추가하세요(없어도 동작).
 
 ## 테스트

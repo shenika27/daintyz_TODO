@@ -13,3 +13,5 @@ dist/
 *.db
 *.log
 .DS_Store
+# 빌드 시 일시 생성되는 캐릭터 변경 비활성화 마커
+resources/character_edit_disabled.flag

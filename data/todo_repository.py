@@ -24,6 +24,25 @@ class TodoRepository:
         ).fetchall()
         return [Todo.from_row(r) for r in rows]
 
+    def has_incomplete_before(self, iso: str) -> bool:
+        """주어진 날짜 이전(< iso)에 미완료·미숨김 할일이 하나라도 있는지."""
+        r = self.conn.execute(
+            "SELECT 1 FROM todos WHERE due_date < ? AND completed = 0 AND hidden = 0 "
+            "LIMIT 1",
+            (iso,),
+        ).fetchone()
+        return r is not None
+
+    def incomplete_counts_before(self, iso: str) -> list[tuple[str, int]]:
+        """주어진 날짜 이전(< iso)에 미완료 할일이 있는 날짜별 개수(날짜 오름차순)."""
+        rows = self.conn.execute(
+            "SELECT due_date, COUNT(*) AS c FROM todos "
+            "WHERE due_date < ? AND completed = 0 AND hidden = 0 "
+            "GROUP BY due_date ORDER BY due_date",
+            (iso,),
+        ).fetchall()
+        return [(r["due_date"], r["c"]) for r in rows]
+
     def get(self, todo_id: int) -> Todo | None:
         r = self.conn.execute(
             "SELECT * FROM todos WHERE id = ?", (todo_id,)

@@ -10,7 +10,14 @@ from __future__ import annotations
 from datetime import date, timedelta
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QFrame, QGridLayout, QLabel, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import (
+    QFrame,
+    QGridLayout,
+    QHBoxLayout,
+    QLabel,
+    QVBoxLayout,
+    QWidget,
+)
 
 from domain import policies
 from ui.bubble.todo_item import MIME_TODO
@@ -21,7 +28,7 @@ CELL = 58  # 정사각형 셀 한 변(px)
 
 class MonthCell(QFrame):
     def __init__(self, d: date, anchor_month: int, selected: bool,
-                 count: int, service, select_cb, open_day_cb, parent=None):
+                 total: int, done: int, service, select_cb, open_day_cb, parent=None):
         super().__init__(parent)
         self.iso = d.isoformat()
         self._service = service
@@ -45,12 +52,24 @@ class MonthCell(QFrame):
         head.setFont(f)
         lay.addWidget(head)
 
-        if count > 0:
-            badge = QLabel(str(count))
-            badge.setObjectName("countBadge")
-            badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            badge.setFixedSize(18, 18)
-            lay.addWidget(badge, 0, Qt.AlignmentFlag.AlignHCenter)
+        # 달성(녹색 ✓)·미달성(보라 뱃지) 개수를 색으로 구분 표기
+        remain = total - done
+        if total > 0:
+            row = QHBoxLayout()
+            row.setContentsMargins(0, 0, 0, 0)
+            row.setSpacing(3)
+            row.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+            if done > 0:
+                dl = QLabel(f"✓{done}")  # ✓N
+                dl.setObjectName("doneCount")
+                row.addWidget(dl)
+            if remain > 0:
+                rb = QLabel(str(remain))
+                rb.setObjectName("countBadge")
+                rb.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                rb.setFixedSize(16, 16)
+                row.addWidget(rb)
+            lay.addLayout(row)
 
     def mousePressEvent(self, _e) -> None:
         self._select_cb(self.iso)
@@ -80,13 +99,15 @@ class MonthView(QWidget):
         anchor = date.fromisoformat(selected_iso)
         grid_start, grid_end = policies.month_grid_range(anchor)
 
-        # 날짜별 할일 개수
+        # 날짜별 (전체, 달성) 개수
         service.ensure_range(grid_start.isoformat(), grid_end.isoformat())
-        counts: dict[str, int] = {}
+        counts: dict[str, tuple[int, int]] = {}
         cur = grid_start
         while cur <= grid_end:
             iso = cur.isoformat()
-            counts[iso] = len(service.list_for_date(iso))
+            todos = service.list_for_date(iso)
+            done = sum(1 for t in todos if t.completed)
+            counts[iso] = (len(todos), done)
             cur += timedelta(days=1)
 
         lay = QGridLayout(self)
@@ -105,8 +126,9 @@ class MonthView(QWidget):
         for i in range(42):
             d = grid_start + timedelta(days=i)
             iso = d.isoformat()
+            total, done = counts.get(iso, (0, 0))
             cell = MonthCell(
                 d, anchor.month, iso == selected_iso,
-                counts.get(iso, 0), service, select_cb, open_day_cb,
+                total, done, service, select_cb, open_day_cb,
             )
             lay.addWidget(cell, 1 + i // 7, i % 7, Qt.AlignmentFlag.AlignCenter)

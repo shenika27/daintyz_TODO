@@ -34,7 +34,7 @@ from PyQt6.QtWidgets import (
 from domain.models import Todo
 
 MIME_TODO = "application/x-character-todo"
-_TOOLTIP_DELAY_MS = 1500
+_TOOLTIP_DELAY_MS = 500
 
 
 class TodoItem(QWidget):

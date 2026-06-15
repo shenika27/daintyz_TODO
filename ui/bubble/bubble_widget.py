@@ -25,6 +25,7 @@ from ui import theme
 from ui.bubble.day_view import DayView
 from ui.bubble.input_bar import InputBar
 from ui.bubble.month_view import MonthView
+from ui.bubble.overdue_panel import OverduePanel
 from ui.bubble.week_view import WeekView
 
 _ORDER = ["day", "week", "month"]
@@ -54,6 +55,7 @@ class BubbleWidget(QWidget):
         self.view_mode = self._settings.get(policies.KEY_LAST_VIEW, "day") or "day"
         if self.view_mode not in _ORDER:
             self.view_mode = "day"
+        self._show_overdue = (self._settings.get(policies.KEY_OVERDUE_PANEL, "1") or "1") == "1"
 
         self._root = QFrame(self)
         self._root.setObjectName("bubbleRoot")
@@ -65,18 +67,23 @@ class BubbleWidget(QWidget):
         self._vbox.setContentsMargins(8, 8, 8, 8)
         self._vbox.setSpacing(6)
 
-        self._build_header()
+        self._build_header(self._vbox)
         self._view_holder = QWidget()
         self._view_layout = QVBoxLayout(self._view_holder)
         self._view_layout.setContentsMargins(0, 0, 0, 0)
         self._vbox.addWidget(self._view_holder)
-
         self._input = InputBar(self._service, lambda: self.selected_iso)
         self._vbox.addWidget(self._input)
+
+        # '밀린 할일'은 말풍선과 분리된 독립 창(우측에 떠 있음)
+        self._overdue_panel = OverduePanel(
+            self._service, self._events, self._settings, self.open_day
+        )
 
         self._events.todos_changed.connect(self._on_data_changed)
         self._events.delete_undo_available.connect(self._set_revert_visible)
         self._events.theme_changed.connect(self.apply_theme)
+        self._events.overdue_panel_changed.connect(self._on_overdue_panel_changed)
 
         self.apply_theme()
         self.render()
@@ -87,7 +94,7 @@ class BubbleWidget(QWidget):
         self.setStyleSheet(theme.qss(mode))
 
     # ── 헤더 ────────────────────────────────────────────────
-    def _build_header(self) -> None:
+    def _build_header(self, target_layout) -> None:
         bar = QHBoxLayout()
         bar.setSpacing(2)
         self._title = QLabel()
@@ -139,7 +146,7 @@ class BubbleWidget(QWidget):
         self._min.clicked.connect(self.hide)
         bar.addWidget(self._min)
 
-        self._vbox.addLayout(bar)
+        target_layout.addLayout(bar)
 
     # ── 렌더 ────────────────────────────────────────────────
     def render(self) -> None:
@@ -207,6 +214,10 @@ class BubbleWidget(QWidget):
     def _set_revert_visible(self, v: bool) -> None:
         self._revert.setVisible(v)
 
+    def _on_overdue_panel_changed(self, on: bool) -> None:
+        self._show_overdue = on
+        self._position_overdue_panel()
+
     def _on_revert(self) -> None:
         self._service.undo_remove()
 
@@ -230,6 +241,34 @@ class BubbleWidget(QWidget):
         if self._char_geom is None or self._screen_geom is None:
             return
         self.move(self._placement(self._char_geom, self._screen_geom))
+        self._position_overdue_panel()
+
+    def _position_overdue_panel(self) -> None:
+        """밀린 할일 패널을 말풍선 우측(공간 없으면 좌측)에 같은 높이로 띄운다."""
+        panel = self._overdue_panel
+        if not self._show_overdue or not self.isVisible() or self._screen_geom is None:
+            panel.hide()
+            return
+        panel.setFixedHeight(self.height())
+        scr = self._screen_geom
+        right_x = self.x() + self.width() + _GAP
+        left_x = self.x() - panel.width() - _GAP
+        if right_x + panel.width() <= scr.right() - _MARGIN:
+            x = right_x
+        elif left_x >= scr.left() + _MARGIN:
+            x = left_x
+        else:
+            x = right_x
+        panel.move(x, self.y())
+        panel.reload()
+        panel.show()
+        panel.raise_()
+
+    def hideEvent(self, e) -> None:
+        # 말풍선이 숨겨지면(최소화/토글) 밀린 할일 패널도 함께 숨긴다.
+        if hasattr(self, "_overdue_panel"):
+            self._overdue_panel.hide()
+        super().hideEvent(e)
 
     def _placement(self, char: QRect, scr: QRect) -> QPoint:
         """캐릭터 위치는 그대로 두고, 캐릭터를 가리지 않는 자리에 말풍선을 둔다.

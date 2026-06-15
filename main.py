@@ -7,6 +7,7 @@ from __future__ import annotations
 import logging
 import sys
 
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QApplication, QMessageBox
 
 from core import logging_config
@@ -116,6 +117,9 @@ def main() -> int:
     logging_config.setup_logging()
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)  # 트레이 상주: 창 닫혀도 종료 안 함
+    # 툴팁 페이드/애니메이션 끄기 → 0.5초 뒤 즉시 표시
+    app.setEffectEnabled(Qt.UIEffect.UI_FadeTooltip, False)
+    app.setEffectEnabled(Qt.UIEffect.UI_AnimateTooltip, False)
 
     if not Tray_is_available():
         QMessageBox.warning(None, "트레이 없음", "시스템 트레이를 사용할 수 없습니다.")

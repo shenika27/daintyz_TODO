@@ -7,12 +7,15 @@ from datetime import date, timedelta
 # 설정 키 상수 (오타 방지를 위해 한 곳에 모음)
 KEY_INCOMPLETE = "policy.incomplete"        # 'keep' | 'rollover'
 KEY_MONTH_OVERFLOW = "policy.month_overflow"  # 'skip' | 'clamp'
-KEY_IMAGE_PATH = "character.image_path"
+KEY_IMAGE_PATH = "character.image_path"            # 기본(오늘, 특이사항 없음)
+KEY_IMAGE_OVERDUE = "character.image_overdue"      # 이전 날짜 미달성 할일이 있을 때
+KEY_IMAGE_DELETE = "character.image_delete"        # 할일을 캐릭터에 끌어다 둘 때(삭제)
 KEY_LAST_X = "character.last_x"
 KEY_LAST_Y = "character.last_y"
 KEY_AUTOSTART = "app.autostart"             # '0' | '1'
 KEY_LAST_VIEW = "bubble.last_view"          # 'day' | 'week' | 'month'
 KEY_THEME = "app.theme"                      # 'light' | 'dark' | 'system'
+KEY_OVERDUE_PANEL = "bubble.overdue_panel"   # '0' | '1' — 밀린 할일 패널 표시
 
 
 def app_weekday(d: date) -> int:
