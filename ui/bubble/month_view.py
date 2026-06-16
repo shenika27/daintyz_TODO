@@ -13,7 +13,6 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QFrame,
     QGridLayout,
-    QHBoxLayout,
     QLabel,
     QVBoxLayout,
     QWidget,
@@ -24,6 +23,11 @@ from ui.bubble.todo_item import MIME_TODO
 
 _WD = ["일", "월", "화", "수", "목", "금", "토"]
 CELL = 58  # 정사각형 셀 한 변(px)
+
+
+def _count_text(label: str, n: int) -> str:
+    """3자리 이하면 '라벨 N', 4자리 이상이면 'N'만(셀이 좁아 텍스트 생략)."""
+    return f"{label} {n}" if n < 1000 else str(n)
 
 
 class MonthCell(QFrame):
@@ -52,24 +56,27 @@ class MonthCell(QFrame):
         head.setFont(f)
         lay.addWidget(head)
 
-        # 달성(녹색 ✓)·미달성(보라 뱃지) 개수를 색으로 구분 표기
-        remain = total - done
+        # 둥근 직사각형 뱃지 안에 '할일 N'(옅은 빨강) / '완료 N'(연두) 표기
         if total > 0:
-            row = QHBoxLayout()
-            row.setContentsMargins(0, 0, 0, 0)
-            row.setSpacing(3)
-            row.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+            badge = QWidget()
+            badge.setObjectName("statBadge")
+            badge.setAttribute(Qt.WidgetAttribute.WA_StyledBackground)
+            blay = QVBoxLayout(badge)
+            blay.setContentsMargins(5, 2, 5, 2)
+            blay.setSpacing(0)
+
+            l_total = QLabel(_count_text("할일", total))
+            l_total.setObjectName("badgeTotal")
+            l_total.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            blay.addWidget(l_total)
+
             if done > 0:
-                dl = QLabel(f"✓{done}")  # ✓N
-                dl.setObjectName("doneCount")
-                row.addWidget(dl)
-            if remain > 0:
-                rb = QLabel(str(remain))
-                rb.setObjectName("countBadge")
-                rb.setAlignment(Qt.AlignmentFlag.AlignCenter)
-                rb.setFixedSize(16, 16)
-                row.addWidget(rb)
-            lay.addLayout(row)
+                l_done = QLabel(_count_text("완료", done))
+                l_done.setObjectName("badgeDone")
+                l_done.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                blay.addWidget(l_done)
+
+            lay.addWidget(badge, alignment=Qt.AlignmentFlag.AlignHCenter)
 
     def mousePressEvent(self, _e) -> None:
         self._select_cb(self.iso)

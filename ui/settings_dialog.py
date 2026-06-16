@@ -76,6 +76,27 @@ class SettingsDialog(QDialog):
             self._add_image_row(form, "이미지 · 기본", policies.KEY_IMAGE_PATH)
             self._add_image_row(form, "이미지 · 밀린 할일", policies.KEY_IMAGE_OVERDUE)
             self._add_image_row(form, "이미지 · 삭제 시", policies.KEY_IMAGE_DELETE)
+            self._add_image_row(form, "이미지 · 비활성", policies.KEY_IMAGE_IDLE)
+
+        # 비활성 판정 시간 (0 = 기능 끔)
+        self._idle_hours = QSpinBox()
+        self._idle_hours.setRange(0, 168)
+        self._idle_hours.setSuffix(" 시간  (0 = 끔)")
+        self._idle_hours.setValue(int(self._settings.get(policies.KEY_IDLE_HOURS, "0") or "0"))
+        self._idle_hours.valueChanged.connect(
+            lambda v: self._settings.set(policies.KEY_IDLE_HOURS, str(v))
+        )
+        form.addRow("비활성 기준 시간", self._idle_hours)
+
+        # 밀린 할일 패널 위치
+        self._panel_side = QComboBox()
+        self._panel_side.addItem("오른쪽", "right")
+        self._panel_side.addItem("왼쪽", "left")
+        self._select_data(self._panel_side, self._settings.get(policies.KEY_OVERDUE_PANEL_SIDE, "right"))
+        self._panel_side.currentIndexChanged.connect(
+            lambda: self._settings.set(policies.KEY_OVERDUE_PANEL_SIDE, self._panel_side.currentData())
+        )
+        form.addRow("밀린 할일 위치", self._panel_side)
 
         # 미완료 처리
         self._incomplete = QComboBox()

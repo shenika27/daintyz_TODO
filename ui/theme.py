@@ -26,6 +26,8 @@ LIGHT = {
     "check_border": "#B4B2A9",
     "red": "#D85A30",
     "ok": "#2E9E5B",
+    "todo_red": "#D9785C",   # 옅은 빨강 — 월간 '할일' 개수
+    "done_green": "#6FA83A",  # 연두 — 월간 '완료' 개수
     "dim": "#A3A29C",
 }
 
@@ -42,6 +44,8 @@ DARK = {
     "check_border": "#5C5C66",
     "red": "#F09595",
     "ok": "#5BC081",
+    "todo_red": "#E8A28C",   # 옅은 빨강 — 월간 '할일' 개수
+    "done_green": "#A6D161",  # 연두 — 월간 '완료' 개수
     "dim": "#6E6E78",
 }
 
@@ -119,12 +123,15 @@ def qss(mode: str | None) -> str:
     border-radius: 7px;
     padding: 1px 6px;
 }}
-#bubbleRoot QLabel#countBadge {{
-    color: white; background: {c['accent']};
-    border-radius: 8px; font-size: 9px;
+#bubbleRoot QWidget#statBadge {{
+    background: {c['surface']};
+    border-radius: 5px;
 }}
-#bubbleRoot QLabel#doneCount {{
-    color: {c['ok']}; font-size: 9px; font-weight: bold;
+#bubbleRoot QLabel#badgeTotal {{
+    color: {c['todo_red']}; font-size: 9px;
+}}
+#bubbleRoot QLabel#badgeDone {{
+    color: {c['done_green']}; font-size: 9px;
 }}
 
 #bubbleRoot QToolButton {{

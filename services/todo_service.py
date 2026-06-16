@@ -8,7 +8,7 @@ UI 는 이 서비스만 호출하고, 변경 후엔 EventBus.todos_changed 로 �
 from __future__ import annotations
 
 import logging
-from datetime import date
+from datetime import date, datetime
 
 from domain.models import Todo
 
@@ -40,6 +40,16 @@ class TodoService:
     def overdue_counts(self, today_iso: str) -> list[tuple[str, int]]:
         """오늘 이전 미완료 할일을 날짜별 개수로(밀린 할일 패널용)."""
         return self._repo.incomplete_counts_before(today_iso)
+
+    def is_idle(self, hours: int) -> bool:
+        """마지막 할일 활동(생성/수정)이 hours 시간 이상 지났으면 True. 0=항상 False."""
+        if hours <= 0:
+            return False
+        latest = self._repo.latest_activity()
+        if not latest:
+            return False
+        delta = datetime.now() - datetime.fromisoformat(latest)
+        return delta.total_seconds() >= hours * 3600
 
     # ── 쓰기 ────────────────────────────────────────────────
     def add(self, content: str, iso: str) -> None:

@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 from datetime import date
 
-from PyQt6.QtCore import QPoint, QSize, Qt
+from PyQt6.QtCore import QPoint, QSize, QTimer, Qt
 from PyQt6.QtGui import (
     QAction,
     QBrush,
@@ -37,6 +37,7 @@ _FALLBACK_BASE = {
     "default": "character_default",
     "overdue": "character_overdue",
     "delete": "character_delete",
+    "idle": "character_idle",
 }
 _FALLBACK_EXTS = (".png", ".gif")  # 우선순위 순(둘 다 있으면 png)
 
@@ -45,6 +46,7 @@ _IMAGE_KEYS = {
     "default": policies.KEY_IMAGE_PATH,
     "overdue": policies.KEY_IMAGE_OVERDUE,
     "delete": policies.KEY_IMAGE_DELETE,
+    "idle": policies.KEY_IMAGE_IDLE,
 }
 
 
@@ -70,8 +72,9 @@ class CharacterWidget(QWidget):
 
         self._pixmaps: dict[str, QPixmap | None] = {}
         self._movies: dict[str, QMovie | None] = {}  # 애니메이션 GIF 상황별
-        self._situation = "default"   # 'default' | 'overdue' | 'delete'
+        self._situation = "default"   # 'default' | 'overdue' | 'idle' | 'delete'
         self._overdue = False
+        self._idle = False
         self._press_global: QPoint | None = None
         self._press_frame: QPoint | None = None
         self._moved = False
@@ -85,9 +88,16 @@ class CharacterWidget(QWidget):
         self.setAcceptDrops(True)  # 할일을 캐릭터로 끌어다 놓으면 삭제(휴지통)
 
         self._load_images()
-        self._refresh_overdue()
+        self._refresh_situation()
         self._events.character_image_changed.connect(self._on_image_changed)
-        self._events.todos_changed.connect(lambda _iso: self._refresh_overdue())
+        self._events.todos_changed.connect(lambda _iso: self._refresh_situation())
+
+        # 비활성 상태는 할일 변경 없이도 시간 경과로 바뀌므로 1분마다 재확인
+        self._idle_timer = QTimer(self)
+        self._idle_timer.setInterval(60_000)
+        self._idle_timer.timeout.connect(self._refresh_situation)
+        self._idle_timer.start()
+
         self._restore_position()
 
     # ── 이미지 ──────────────────────────────────────────────
@@ -170,11 +180,20 @@ class CharacterWidget(QWidget):
             self._update_active_movie()
             self.update()
 
-    def _refresh_overdue(self) -> None:
-        """오늘 이전 미달성 여부를 다시 계산해 (드래그 중이 아니면) 상태 반영."""
-        self._overdue = self._service.has_overdue(date.today().isoformat())
+    def _refresh_situation(self) -> None:
+        """overdue · idle 여부를 재계산해 (드래그 중이 아니면) 상황 반영.
+        우선순위: delete > overdue > idle > default"""
+        today = date.today().isoformat()
+        self._overdue = self._service.has_overdue(today)
+        hours = int(self._settings.get(policies.KEY_IDLE_HOURS, "0") or "0")
+        self._idle = self._service.is_idle(hours)
         if self._situation != "delete":
-            self._set_situation("overdue" if self._overdue else "default")
+            if self._overdue:
+                self._set_situation("overdue")
+            elif self._idle:
+                self._set_situation("idle")
+            else:
+                self._set_situation("default")
 
     def _on_image_changed(self, _path: str) -> None:
         self._load_images()
@@ -289,7 +308,12 @@ class CharacterWidget(QWidget):
         self._restore_situation()  # 삭제 후 overdue/default 로 복귀
 
     def _restore_situation(self) -> None:
-        self._set_situation("overdue" if self._overdue else "default")
+        if self._overdue:
+            self._set_situation("overdue")
+        elif self._idle:
+            self._set_situation("idle")
+        else:
+            self._set_situation("default")
 
     # ── 우클릭 메뉴 ─────────────────────────────────────────
     def _show_menu(self, global_pos: QPoint) -> None:

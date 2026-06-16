@@ -211,16 +211,25 @@ class TodoItem(QWidget):
         # 삭제는 캐릭터에 드롭 시 캐릭터 쪽에서 처리.
 
     def _drag_preview(self) -> QPixmap:
-        """현재 행 모습 그대로 캡처해 반투명 처리한 드래그 미리보기.
-        일간 hover 시 떠 있는 연필/휴지통은 빼고 깔끔하게 캡처한다."""
+        """드래그 미리보기: 연필/휴지통 숨기고 캡처 후 반투명 처리.
+        너비는 이 항목의 텍스트 길이 기준으로 고정(같은 컬럼 최장 텍스트에 끌려가지 않도록)."""
         pencil_v, x_v = self.pencil.isVisible(), self.xbtn.isVisible()
         self.pencil.setVisible(False)
         self.xbtn.setVisible(False)
-        src = self.grab()  # 테마/취소선 등 실제 렌더 그대로
+        src = self.grab()
         self.pencil.setVisible(pencil_v)
         self.xbtn.setVisible(x_v)
-        pm = QPixmap(src.size())
-        pm.setDevicePixelRatio(src.devicePixelRatio())
+
+        dpr = src.devicePixelRatio()
+        # 이 항목 텍스트 길이 기반 목표 너비(논리 픽셀)
+        fm = self.label.fontMetrics()
+        text_w = fm.horizontalAdvance(self.todo.content)
+        check_w = self.check.sizeHint().width()
+        # layout: left(8) + checkbox + spacing(6) + text + right(8) + 여유(8)
+        target_w = min(8 + check_w + 6 + text_w + 16, int(src.width() / dpr))
+
+        pm = QPixmap(int(target_w * dpr), src.height())
+        pm.setDevicePixelRatio(dpr)
         pm.fill(QColor(0, 0, 0, 0))
         p = QPainter(pm)
         p.setOpacity(0.7)

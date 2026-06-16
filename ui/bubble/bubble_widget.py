@@ -31,6 +31,7 @@ from ui.bubble.week_view import WeekView
 _ORDER = ["day", "week", "month"]
 _WIDTH = {"day": 240, "week": 920, "month": 470}
 _GAP = 10
+_PANEL_GAP = 2  # 밀린 할일 패널 ↔ 말풍선 간격
 _MARGIN = 6
 _WD_KR = ["일", "월", "화", "수", "목", "금", "토"]
 
@@ -244,21 +245,17 @@ class BubbleWidget(QWidget):
         self._position_overdue_panel()
 
     def _position_overdue_panel(self) -> None:
-        """밀린 할일 패널을 말풍선 우측(공간 없으면 좌측)에 같은 높이로 띄운다."""
+        """밀린 할일 패널을 설정된 방향(좌/우)에 붙여서 띄운다."""
         panel = self._overdue_panel
         if not self._show_overdue or not self.isVisible() or self._screen_geom is None:
             panel.hide()
             return
         panel.setFixedHeight(self.height())
-        scr = self._screen_geom
-        right_x = self.x() + self.width() + _GAP
-        left_x = self.x() - panel.width() - _GAP
-        if right_x + panel.width() <= scr.right() - _MARGIN:
-            x = right_x
-        elif left_x >= scr.left() + _MARGIN:
-            x = left_x
+        side = self._settings.get(policies.KEY_OVERDUE_PANEL_SIDE, "right")
+        if side == "left":
+            x = self.x() - panel.width() - _PANEL_GAP
         else:
-            x = right_x
+            x = self.x() + self.width() + _PANEL_GAP
         panel.move(x, self.y())
         panel.reload()
         panel.show()

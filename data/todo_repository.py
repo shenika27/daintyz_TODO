@@ -33,6 +33,13 @@ class TodoRepository:
         ).fetchone()
         return r is not None
 
+    def latest_activity(self) -> str | None:
+        """숨기지 않은 할일 중 가장 최근 created_at/updated_at. 없으면 None."""
+        r = self.conn.execute(
+            "SELECT MAX(updated_at) FROM todos WHERE hidden = 0"
+        ).fetchone()
+        return r[0] if r else None
+
     def incomplete_counts_before(self, iso: str) -> list[tuple[str, int]]:
         """주어진 날짜 이전(< iso)에 미완료 할일이 있는 날짜별 개수(날짜 오름차순)."""
         rows = self.conn.execute(
