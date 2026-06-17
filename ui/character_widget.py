@@ -47,6 +47,7 @@ _FALLBACK_BASE = {
 }
 _REACTION_MS = 3000       # 완료(done) 리액션 표시 시간
 _TIMER_DONE_MS = 3000     # 타이머 만료(timer_done) 리액션 표시 시간
+_GRID_REACT_MS = 3000     # 그리드 열기(open)/닫기(closed) 리액션 표시 시간
 _FALLBACK_EXTS = (".png", ".gif")  # 우선순위 순(둘 다 있으면 png)
 
 # 상황 → 설정 키. 'default' 는 기본 이미지, 나머지는 없으면 default 로 폴백.
@@ -100,6 +101,7 @@ class CharacterWidget(QWidget):
         self._press_frame: QPoint | None = None
         self._moved = False
         self._undo_available = False   # 되돌리기(삭제 취소) 가능 여부 — 우클릭 메뉴에서 사용
+        self._click_closing = False    # 캐릭터 클릭으로 닫는 중이면 True(bubble_closed 에서 closed 리액션)
 
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
@@ -124,11 +126,9 @@ class CharacterWidget(QWidget):
             self._events.timer_resumed.connect(self._on_timer_resumed)
         if self._timer_bubble is not None:
             self._timer_bubble.clicked.connect(self._on_timer_bubble_clicked)
-        # 말풍선이 – 로 닫히면 타이머 도는 중일 때 캐릭터 옆 풍선을 다시 띄운다.
-        self._events.bubble_closed.connect(lambda: self._sync_timer_bubble())
-        # 목록(말풍선) 열림/닫힘에 따라 캐릭터 기본 이미지 전환(#12)
-        self._events.bubble_opened.connect(self._refresh_situation)
-        self._events.bubble_closed.connect(self._refresh_situation)
+        # 그리드 열림/닫힘 → open/closed 리액션(3초) 후 기본 이미지 복귀
+        self._events.bubble_opened.connect(self._on_bubble_opened)
+        self._events.bubble_closed.connect(self._on_bubble_closed)
 
         # 비활성 상태는 할일 변경 없이도 시간 경과로 바뀌므로 1분마다 재확인
         self._idle_timer = QTimer(self)
@@ -251,11 +251,8 @@ class CharacterWidget(QWidget):
             self._set_situation(self._base_situation())
 
     def _base_situation(self) -> str:
-        """특별 상황이 없을 때의 기본 상황: 목록(말풍선) 열림=open / 닫힘=closed (#12).
-        open/closed 이미지가 미설정이면 _resolved_situation 이 default 로 폴백한다."""
-        if self._bubble is not None and self._bubble.isVisible():
-            return "open"
-        return "closed"
+        """특별 상황이 없을 때의 기본: open/closed는 캐릭터 클릭 시 3초 리액션으로만 표시."""
+        return "default"
 
     def _has_image(self, sit: str) -> bool:
         return self._pixmaps.get(sit) is not None or self._movies.get(sit) is not None
@@ -314,6 +311,20 @@ class CharacterWidget(QWidget):
         self._paused = False
         if not self._reacting and self._situation != "delete":
             self._restore_situation()  # work 이미지로 복귀
+
+    def _on_bubble_opened(self) -> None:
+        """말풍선(그리드)이 열렸을 때: open 이미지를 3초 표시 후 기본 이미지 복귀."""
+        self._start_reaction("open", _GRID_REACT_MS)
+
+    def _on_bubble_closed(self) -> None:
+        """말풍선(그리드)이 닫혔을 때: 타이머 풍선 동기화 + 이미지 처리.
+        캐릭터 클릭으로 닫은 경우에만 closed 리액션(3초)을 표시하고, 그 외(✕·– 등)는 즉시 복귀."""
+        self._sync_timer_bubble()
+        if self._click_closing:
+            self._click_closing = False
+            self._start_reaction("closed", _GRID_REACT_MS)
+        else:
+            self._refresh_situation()
 
     def _on_timer_bubble_clicked(self) -> None:
         """타이머 풍선 클릭: (최소화 상태면 복원하고) 말풍선 열기."""
@@ -442,7 +453,8 @@ class CharacterWidget(QWidget):
         - 모두 숨겨져 있으면 '켜진' 그리드만 다시 표시(꺼진 그리드는 안 나옴)
         - 모든 그리드가 꺼져 있으면 전부 켠다(escape)."""
         if self._bubble.isVisible() or self._bubble.any_panel_visible():
-            self._bubble.minimize_all()   # bubble_closed 구독으로 풍선/이미지 동기화
+            self._click_closing = True    # bubble_closed 에서 closed 리액션 시작
+            self._bubble.minimize_all()
         else:
             self._restore_grids()
 
@@ -459,11 +471,11 @@ class CharacterWidget(QWidget):
             list_on = True  # show_for_character 가 KEY_LIST_SHOW=1 기록
         scr = self._screen_for(self.frameGeometry().center()).availableGeometry()
         if list_on:
-            self._bubble.show_for_character(self.frameGeometry(), scr)
+            self._bubble.show_for_character(self.frameGeometry(), scr)  # bubble_opened emit → open 리액션
         else:
             self._bubble.show_detached_panels(self.frameGeometry(), scr)
+            self._start_reaction("open", _GRID_REACT_MS)  # 패널만 열릴 때도 캐릭터 클릭 → open 리액션
         self._sync_timer_bubble()
-        self._refresh_situation()
 
     # ── 휴지통(할일 드롭=삭제) ──────────────────────────────
     def dragEnterEvent(self, e) -> None:
