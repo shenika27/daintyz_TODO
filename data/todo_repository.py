@@ -73,6 +73,22 @@ class TodoRepository:
         self.conn.commit()
         return cur.lastrowid
 
+    def add_after(self, content: str, iso: str, after_order: int) -> int:
+        """같은 날짜에서 after_order 바로 뒤에 새 할일을 끼워 넣는다(복제용).
+        뒤따르는 항목들의 sort_order 를 한 칸씩 밀어 정렬 순서를 보존한다."""
+        self.conn.execute(
+            "UPDATE todos SET sort_order = sort_order + 1 "
+            "WHERE due_date = ? AND sort_order > ?",
+            (iso, after_order),
+        )
+        cur = self.conn.execute(
+            "INSERT INTO todos (content, due_date, sort_order, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (content, iso, after_order + 1, _now(), _now()),
+        )
+        self.conn.commit()
+        return cur.lastrowid
+
     def set_content(self, todo_id: int, content: str) -> None:
         self.conn.execute(
             "UPDATE todos SET content = ?, updated_at = ? WHERE id = ?",
@@ -123,6 +139,11 @@ class TodoRepository:
 
     def delete(self, todo_id: int) -> None:
         self.conn.execute("DELETE FROM todos WHERE id = ?", (todo_id,))
+        self.conn.commit()
+
+    def delete_by_recurring(self, rule_id: int) -> None:
+        """해당 반복 규칙으로 생성된 모든 할일을 삭제(완료·숨김 포함)."""
+        self.conn.execute("DELETE FROM todos WHERE recurring_id = ?", (rule_id,))
         self.conn.commit()
 
     def insert_raw(self, todo: Todo) -> int:

@@ -38,7 +38,15 @@ _FALLBACK_BASE = {
     "overdue": "character_overdue",
     "delete": "character_delete",
     "idle": "character_idle",
+    "done": "character_done",
+    "work": "character_work",
+    "pause": "character_pause",
+    "timer_done": "character_timer_done",
+    "open": "character_open",
+    "closed": "character_closed",
 }
+_REACTION_MS = 3000       # 완료(done) 리액션 표시 시간
+_TIMER_DONE_MS = 3000     # 타이머 만료(timer_done) 리액션 표시 시간
 _FALLBACK_EXTS = (".png", ".gif")  # 우선순위 순(둘 다 있으면 png)
 
 # 상황 → 설정 키. 'default' 는 기본 이미지, 나머지는 없으면 default 로 폴백.
@@ -47,6 +55,12 @@ _IMAGE_KEYS = {
     "overdue": policies.KEY_IMAGE_OVERDUE,
     "delete": policies.KEY_IMAGE_DELETE,
     "idle": policies.KEY_IMAGE_IDLE,
+    "done": policies.KEY_IMAGE_DONE,
+    "work": policies.KEY_IMAGE_WORK,
+    "pause": policies.KEY_IMAGE_PAUSE,
+    "timer_done": policies.KEY_IMAGE_TIMER_DONE,
+    "open": policies.KEY_IMAGE_OPEN,
+    "closed": policies.KEY_IMAGE_CLOSED,
 }
 
 
@@ -62,22 +76,30 @@ def _bundled_fallback(situation: str) -> str | None:
 
 
 class CharacterWidget(QWidget):
-    def __init__(self, service, events, settings_repo, bubble, controller, parent=None):
+    def __init__(self, service, events, settings_repo, bubble, controller,
+                 timer_service=None, timer_bubble=None, parent=None):
         super().__init__(parent)
         self._service = service
         self._events = events
         self._settings = settings_repo
         self._bubble = bubble
         self._controller = controller
+        self._timer = timer_service
+        self._timer_bubble = timer_bubble
 
         self._pixmaps: dict[str, QPixmap | None] = {}
         self._movies: dict[str, QMovie | None] = {}  # 애니메이션 GIF 상황별
-        self._situation = "default"   # 'default' | 'overdue' | 'idle' | 'delete'
+        self._situation = "default"   # default|overdue|idle|done|work|pause|timer_done|delete
         self._overdue = False
         self._idle = False
+        self._working = False         # 타이머 실행 중(정지 포함)
+        self._paused = False          # 타이머 정지(일시정지) 중
+        self._reacting = False        # 완료/타이머완료 리액션 표시 중
+        self._react_sit = ""          # 리액션 상황('done'|'timer_done')
         self._press_global: QPoint | None = None
         self._press_frame: QPoint | None = None
         self._moved = False
+        self._undo_available = False   # 되돌리기(삭제 취소) 가능 여부 — 우클릭 메뉴에서 사용
 
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
@@ -90,7 +112,23 @@ class CharacterWidget(QWidget):
         self._load_images()
         self._refresh_situation()
         self._events.character_image_changed.connect(self._on_image_changed)
+        self._events.character_scale_changed.connect(self._load_images)
         self._events.todos_changed.connect(lambda _iso: self._refresh_situation())
+        self._events.todo_completed.connect(self._on_todo_completed)
+        self._events.delete_undo_available.connect(self._on_undo_available)
+        if self._timer is not None:
+            self._events.timer_started.connect(self._on_timer_started)
+            self._events.timer_stopped.connect(self._on_timer_stopped)
+            self._events.timer_finished.connect(self._on_timer_finished)
+            self._events.timer_paused.connect(self._on_timer_paused)
+            self._events.timer_resumed.connect(self._on_timer_resumed)
+        if self._timer_bubble is not None:
+            self._timer_bubble.clicked.connect(self._on_timer_bubble_clicked)
+        # 말풍선이 – 로 닫히면 타이머 도는 중일 때 캐릭터 옆 풍선을 다시 띄운다.
+        self._events.bubble_closed.connect(lambda: self._sync_timer_bubble())
+        # 목록(말풍선) 열림/닫힘에 따라 캐릭터 기본 이미지 전환(#12)
+        self._events.bubble_opened.connect(self._refresh_situation)
+        self._events.bubble_closed.connect(self._refresh_situation)
 
         # 비활성 상태는 할일 변경 없이도 시간 경과로 바뀌므로 1분마다 재확인
         self._idle_timer = QTimer(self)
@@ -98,9 +136,20 @@ class CharacterWidget(QWidget):
         self._idle_timer.timeout.connect(self._refresh_situation)
         self._idle_timer.start()
 
+        # 완료 리액션: 잠깐 done 이미지 후 복귀
+        self._react_timer = QTimer(self)
+        self._react_timer.setSingleShot(True)
+        self._react_timer.timeout.connect(self._end_reaction)
+
         self._restore_position()
 
     # ── 이미지 ──────────────────────────────────────────────
+    def _box(self) -> int:
+        """크기 설정(%)을 반영한 이미지 바운딩 박스 한 변(px)."""
+        pct = int(self._settings.get(policies.KEY_CHAR_SCALE, "100") or "100")
+        pct = max(50, min(200, pct))
+        return int(_DEFAULT_SIZE * 2 * pct / 100)
+
     def _load_images(self) -> None:
         """상황별 이미지를 모두 읽어둔다. GIF 는 QMovie(애니메이션), 그 외는 QPixmap.
         미설정/없음이면 None → 그릴 때 default 로 폴백. 위젯 크기는 기본 이미지 기준 고정."""
@@ -119,6 +168,8 @@ class CharacterWidget(QWidget):
 
         size = self._source_size("default") or QSize(_DEFAULT_SIZE, _DEFAULT_SIZE)
         self.resize(size)
+        if self.isVisible():  # 크기 변경 reload 시 화면 밖으로 나가지 않게
+            self.move(self._clamp(self.pos()))
         self._update_active_movie()
         self.update()
 
@@ -126,7 +177,7 @@ class CharacterWidget(QWidget):
         """경로 → (pixmap, movie). 애니메이션 GIF 면 movie, 그 외 정적 pixmap."""
         if not path:
             return None, None
-        box = _DEFAULT_SIZE * 2
+        box = self._box()
         if path.lower().endswith(".gif"):
             movie = QMovie(path)
             if movie.isValid():
@@ -181,19 +232,122 @@ class CharacterWidget(QWidget):
             self.update()
 
     def _refresh_situation(self) -> None:
-        """overdue · idle 여부를 재계산해 (드래그 중이 아니면) 상황 반영.
-        우선순위: delete > overdue > idle > default"""
+        """overdue · work · idle 여부를 재계산해 상황 반영.
+        우선순위: delete > work(타이머) > timer_done/done(리액션) > overdue > idle > default
+        — 타이머가 최우선이라 타이머가 도는 동안엔 overdue/완료 리액션보다 work 가 이긴다."""
         today = date.today().isoformat()
         self._overdue = self._service.has_overdue(today)
         hours = int(self._settings.get(policies.KEY_IDLE_HOURS, "0") or "0")
         self._idle = self._service.is_idle(hours)
-        if self._situation != "delete":
-            if self._overdue:
-                self._set_situation("overdue")
-            elif self._idle:
-                self._set_situation("idle")
-            else:
-                self._set_situation("default")
+        if self._situation == "delete" or self._reacting:
+            return  # 드래그/리액션 중에는 덮어쓰지 않음
+        if self._working:
+            self._set_situation("pause" if self._paused else "work")
+        elif self._overdue:
+            self._set_situation("overdue")
+        elif self._idle:
+            self._set_situation("idle")
+        else:
+            self._set_situation(self._base_situation())
+
+    def _base_situation(self) -> str:
+        """특별 상황이 없을 때의 기본 상황: 목록(말풍선) 열림=open / 닫힘=closed (#12).
+        open/closed 이미지가 미설정이면 _resolved_situation 이 default 로 폴백한다."""
+        if self._bubble is not None and self._bubble.isVisible():
+            return "open"
+        return "closed"
+
+    def _has_image(self, sit: str) -> bool:
+        return self._pixmaps.get(sit) is not None or self._movies.get(sit) is not None
+
+    def _start_reaction(self, sit: str, ms: int) -> None:
+        """sit 이미지가 있으면 ms 동안 보여주고 복귀. 없으면 리액션 생략."""
+        if not self._has_image(sit):
+            self._restore_situation()
+            return
+        self._reacting = True
+        self._react_sit = sit
+        self._set_situation(sit)
+        self._react_timer.start(ms)
+
+    def _on_todo_completed(self) -> None:
+        """완료 체크 순간: done 이미지를 잠깐. 단, 타이머가 최우선이라 타이머 진행 중엔 생략."""
+        if self._working:
+            return  # 타이머 중에는 work 이미지를 유지(타이머 최우선)
+        if self._reacting and self._react_sit == "timer_done":
+            return  # timer_done 우선
+        self._start_reaction("done", _REACTION_MS)
+
+    def _end_reaction(self) -> None:
+        self._reacting = False
+        if self._situation == self._react_sit:
+            self._restore_situation()
+        self._react_sit = ""
+
+    # ── 타이머 ──────────────────────────────────────────────
+    def _on_timer_started(self, _todo_id: int) -> None:
+        self._working = True
+        self._paused = False
+        if not self._reacting and self._situation != "delete":
+            self._restore_situation()  # work 로 전환(우선순위 반영)
+        self._sync_timer_bubble()
+
+    def _on_timer_stopped(self) -> None:
+        self._working = False
+        self._paused = False
+        if not self._reacting and self._situation != "delete":
+            self._restore_situation()
+        self._sync_timer_bubble()
+
+    def _on_timer_finished(self, _todo_id: int) -> None:
+        self._working = False
+        self._paused = False
+        self._start_reaction("timer_done", _TIMER_DONE_MS)
+        self._sync_timer_bubble()
+
+    def _on_timer_paused(self, _todo_id: int) -> None:
+        self._paused = True
+        if not self._reacting and self._situation != "delete":
+            self._restore_situation()  # pause 이미지로 전환
+
+    def _on_timer_resumed(self, _todo_id: int) -> None:
+        self._paused = False
+        if not self._reacting and self._situation != "delete":
+            self._restore_situation()  # work 이미지로 복귀
+
+    def _on_timer_bubble_clicked(self) -> None:
+        """타이머 풍선 클릭: (최소화 상태면 복원하고) 말풍선 열기."""
+        self._controller.show_from_timer_bubble()
+
+    def sync_timer_bubble(self, standalone: bool = False) -> None:
+        """타이머 풍선 표시 동기화(외부=컨트롤러용 공개 래퍼).
+        standalone=True 면 캐릭터가 숨겨진 트레이 최소화 중에도 풍선만 띄운다."""
+        self._sync_timer_bubble(standalone)
+
+    def _sync_timer_bubble(self, standalone: bool = False) -> None:
+        """말풍선이 닫혀 있고 타이머가 도는 동안만 캐릭터 옆 타이머 풍선 표시."""
+        tb = self._timer_bubble
+        if tb is None:
+            return
+        active = self._timer is not None and self._timer.is_active()
+        # 타이머 패널이 이미 화면에 떠 있으면(✕로 말풍선만 닫고 패널 유지) 풍선은 중복이라 띄우지 않는다.
+        panel_shown = self._bubble.timer_panel_visible()
+        visible_ok = (
+            standalone
+            or (self.isVisible() and not self._bubble.isVisible() and not panel_shown)
+        )
+        if active and visible_ok:
+            # 캐릭터가 내려간 단독 표시(standalone)일 때만 드래그 이동 허용.
+            tb.set_draggable(standalone)
+            snap = self._timer.snapshot()
+            if snap is not None:
+                tb.set_content(snap.content, snap.remaining_seconds)
+            scr = self._screen_for(self.frameGeometry().center()).availableGeometry()
+            tb.place_for(self.frameGeometry(), scr)
+            tb.show()
+            tb.raise_()
+        else:
+            tb.hide()
 
     def _on_image_changed(self, _path: str) -> None:
         self._load_images()
@@ -267,6 +421,11 @@ class CharacterWidget(QWidget):
         if self._bubble.isVisible():
             scr = self._screen_for(self.frameGeometry().center()).availableGeometry()
             self._bubble.reposition_for_character(self.frameGeometry(), scr)
+        else:
+            # 닫힌 상태에서 드래그: ✕로 남긴 패널(캐릭터 상단)과 타이머 풍선이 함께 따라온다.
+            scr = self._screen_for(self.frameGeometry().center()).availableGeometry()
+            self._bubble.reposition_detached_panels(self.frameGeometry(), scr)
+            self._sync_timer_bubble()
 
     def mouseReleaseEvent(self, e) -> None:
         if e.button() != Qt.MouseButton.LeftButton:
@@ -278,11 +437,33 @@ class CharacterWidget(QWidget):
         self._press_global = None
 
     def _toggle_bubble(self) -> None:
-        if self._bubble.isVisible():
-            self._bubble.hide()
+        """캐릭터 클릭 = 그리드 전체 토글.
+        - 무엇이든 떠 있으면(목록/밀린할일/타이머) 전부 숨김(최소화, 설정 유지)
+        - 모두 숨겨져 있으면 '켜진' 그리드만 다시 표시(꺼진 그리드는 안 나옴)
+        - 모든 그리드가 꺼져 있으면 전부 켠다(escape)."""
+        if self._bubble.isVisible() or self._bubble.any_panel_visible():
+            self._bubble.minimize_all()   # bubble_closed 구독으로 풍선/이미지 동기화
         else:
-            scr = self._screen_for(self.frameGeometry().center()).availableGeometry()
+            self._restore_grids()
+
+    def _restore_grids(self) -> None:
+        """캐릭터 클릭으로 그리드 표시: 설정상 '켜짐'인 그리드만 보여준다(#2).
+        모두 꺼져 있으면 전부 켠다(escape, #3). 설정 저장은 BubbleWidget 이 처리."""
+        s = self._settings
+        list_on = s.get_bool(policies.KEY_LIST_SHOW, True)
+        overdue_on = s.get_bool(policies.KEY_OVERDUE_PANEL, True)
+        timer_on = s.get_bool(policies.KEY_TIMER_PANEL, False)
+        if not (list_on or overdue_on or timer_on):
+            self._events.overdue_panel_changed.emit(True)  # 핸들러가 설정 저장
+            self._events.timer_panel_changed.emit(True)
+            list_on = True  # show_for_character 가 KEY_LIST_SHOW=1 기록
+        scr = self._screen_for(self.frameGeometry().center()).availableGeometry()
+        if list_on:
             self._bubble.show_for_character(self.frameGeometry(), scr)
+        else:
+            self._bubble.show_detached_panels(self.frameGeometry(), scr)
+        self._sync_timer_bubble()
+        self._refresh_situation()
 
     # ── 휴지통(할일 드롭=삭제) ──────────────────────────────
     def dragEnterEvent(self, e) -> None:
@@ -308,40 +489,74 @@ class CharacterWidget(QWidget):
         self._restore_situation()  # 삭제 후 overdue/default 로 복귀
 
     def _restore_situation(self) -> None:
-        if self._overdue:
+        if self._working:
+            self._set_situation("pause" if self._paused else "work")
+        elif self._overdue:
             self._set_situation("overdue")
         elif self._idle:
             self._set_situation("idle")
         else:
-            self._set_situation("default")
+            self._set_situation(self._base_situation())
 
     # ── 우클릭 메뉴 ─────────────────────────────────────────
     def _show_menu(self, global_pos: QPoint) -> None:
         menu = QMenu(self)
-        a_set = QAction("설정", self)
-        a_set.triggered.connect(self._controller.open_settings)
+        menu.addAction(self._action("설정", self._controller.open_settings))
 
-        a_overdue = QAction("밀린할일 표시", self)
-        a_overdue.setCheckable(True)
-        a_overdue.setChecked(
-            (self._settings.get(policies.KEY_OVERDUE_PANEL, "1") or "1") == "1"
-        )
-        a_overdue.toggled.connect(self._toggle_overdue_panel)
+        # 그리드 표시 토글(체크=표시). 체크 상태는 설정값을 그대로 반영한다(✕/–로 바뀐 값 포함).
+        # 밀린할일·타이머는 시그널만 쏘고, 설정 저장·표시는 BubbleWidget 이 일괄 처리한다.
+        menu.addAction(self._grid_action(
+            "할일 목록 표시", policies.KEY_LIST_SHOW, True, self._toggle_list))
+        menu.addAction(self._grid_action(
+            "밀린할일 표시", policies.KEY_OVERDUE_PANEL, True,
+            self._events.overdue_panel_changed))
+        menu.addAction(self._grid_action(
+            "타이머 패널 표시", policies.KEY_TIMER_PANEL, False,
+            self._events.timer_panel_changed))
 
-        a_min = QAction("트레이로 최소화", self)
-        a_min.triggered.connect(self._controller.minimize_to_tray)
-        a_quit = QAction("종료", self)
-        a_quit.triggered.connect(self._controller.quit_app)
-        menu.addAction(a_set)
-        menu.addAction(a_overdue)
-        menu.addAction(a_min)
+        # 되돌리기(삭제 취소): 되돌릴 항목이 있을 때만 활성.
+        a_undo = self._action("되돌리기", self._service.undo_remove)
+        a_undo.setEnabled(self._undo_available)
+        menu.addAction(a_undo)
+
+        menu.addAction(self._action("트레이로 최소화", self._controller.minimize_to_tray))
         menu.addSeparator()
-        menu.addAction(a_quit)
+        menu.addAction(self._action("종료", self._controller.quit_app))
         menu.exec(global_pos)
 
-    def _toggle_overdue_panel(self, on: bool) -> None:
-        self._settings.set(policies.KEY_OVERDUE_PANEL, "1" if on else "0")
-        self._events.overdue_panel_changed.emit(on)
+    def _action(self, label: str, slot) -> QAction:
+        """클릭형 메뉴 항목 생성(triggered → slot)."""
+        a = QAction(label, self)
+        a.triggered.connect(slot)
+        return a
+
+    def _grid_action(self, label: str, key: str, default_on: bool, slot) -> QAction:
+        """체크형 그리드 토글 항목 생성. 체크 상태=설정값, toggled(bool)→slot(슬롯/시그널)."""
+        a = QAction(label, self)
+        a.setCheckable(True)
+        a.setChecked(self._settings.get_bool(key, default_on))
+        a.toggled.connect(slot)
+        return a
+
+    def _on_undo_available(self, available: bool) -> None:
+        self._undo_available = available
+
+    def _toggle_list(self, on: bool) -> None:
+        """할일 목록 표시 토글(우클릭 메뉴): 목록 그리드 '상태'만 바꾼다.
+        전체 최소화(아무 그리드도 안 보임) 상태에서는 화면 출력을 하지 않는다 —
+        그리드 출력은 캐릭터 좌클릭 액션이 담당한다(#2). 그리드가 떠 있는 동안엔 즉시 반영."""
+        if not (self._bubble.isVisible() or self._bubble.any_panel_visible()):
+            self._settings.set(policies.KEY_LIST_SHOW, "1" if on else "0")
+            return
+        if on == self._bubble.isVisible():
+            return
+        scr = self._screen_for(self.frameGeometry().center()).availableGeometry()
+        if on:
+            self._bubble.show_for_character(self.frameGeometry(), scr)
+            self._sync_timer_bubble()
+        else:
+            self._bubble.close_keep_panels()  # 목록만 닫고 밀린할일·타이머 패널은 유지
+        self._refresh_situation()
 
     def closeEvent(self, e) -> None:
         self._save_position()

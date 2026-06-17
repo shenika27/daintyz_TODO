@@ -6,12 +6,15 @@ from __future__ import annotations
 
 import logging
 import sys
+from datetime import date
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import QApplication, QMessageBox
 
 from core import logging_config
 from core.events import EventBus
+from core.global_hotkeys import GlobalHotkeys
+from domain import policies
 from data.database import Database
 from data.recurring_repository import RecurringRepository
 from data.settings_repository import SettingsRepository
@@ -20,10 +23,12 @@ from services.autostart_service import AutostartService
 from services.backup_service import BackupService
 from services.notification_service import NotificationService
 from services.recurring_service import RecurringService
+from services.timer_service import TimerService
 from services.todo_service import TodoService
 from ui.bubble.bubble_widget import BubbleWidget
 from ui.character_widget import CharacterWidget
 from ui.settings_dialog import SettingsDialog
+from ui.timer_bubble import TimerBubble
 from ui.tray import Tray
 
 log = logging.getLogger(__name__)
@@ -52,14 +57,45 @@ class AppController:
         self.backup_service = BackupService(self.db)
         self.autostart_service = AutostartService()
         self.notification = NotificationService(self.db)
+        self.timer_service = TimerService(self.events)
 
         # UI 계층
-        self.bubble = BubbleWidget(self.todo_service, self.events, self.settings_repo)
+        self.bubble = BubbleWidget(
+            self.todo_service, self.events, self.settings_repo, self.timer_service
+        )
+        self.timer_bubble = TimerBubble(self.events, self.settings_repo)
         self.character = CharacterWidget(
-            self.todo_service, self.events, self.settings_repo, self.bubble, self
+            self.todo_service, self.events, self.settings_repo, self.bubble, self,
+            self.timer_service, self.timer_bubble,
         )
         self.tray = Tray(self)
         self.notification.set_tray(self.tray)
+
+        # 타이머 만료 시 트레이 알림
+        self.events.timer_finished.connect(self._on_timer_finished)
+        # 타이머 대상 할일이 외부에서 삭제/완료되면 타이머 해제
+        self.events.todos_changed.connect(self._validate_timer)
+
+        # 전역 단축키 (Windows). 설정 변경 시 재등록.
+        self.hotkeys = GlobalHotkeys(self.app)
+        self._register_hotkeys()
+        self.events.hotkeys_changed.connect(self._register_hotkeys)
+
+        # 반복 할일은 '오늘'에만 생성: 시작 시 1회 + 자정 넘김(1분마다 확인) 시 재생성.
+        self._recurring_day = date.today()
+        self.todo_service.ensure_today_recurring()
+        self._day_timer = QTimer(self.app)
+        self._day_timer.setInterval(60_000)
+        self._day_timer.timeout.connect(self._check_day_rollover)
+        self._day_timer.start()
+
+    def _check_day_rollover(self) -> None:
+        """자정을 넘겨 날짜가 바뀌면 오늘 반복 회차를 생성하고 화면을 갱신한다."""
+        today = date.today()
+        if today != self._recurring_day:
+            self._recurring_day = today
+            self.todo_service.ensure_today_recurring()
+            self.events.todos_changed.emit(today.isoformat())
 
     # ── 컨트롤러 API (UI 가 호출) ───────────────────────────
     def open_settings(self) -> None:
@@ -69,6 +105,7 @@ class AppController:
             self.backup_service,
             self.autostart_service,
             self.recurring_repo,
+            self.todo_service,
             parent=self.character,
         )
         dlg.exec()
@@ -76,21 +113,87 @@ class AppController:
     def minimize_to_tray(self) -> None:
         self.bubble.hide()
         self.character.hide()
+        # 설정이 켜져 있으면 타이머 도는 동안 타이머 풍선만 바탕화면에 남긴다
+        keep = self.settings_repo.get_bool(policies.KEY_TIMER_TRAY_SHOW, True)
+        self.character.sync_timer_bubble(standalone=keep)
 
     def toggle_character(self) -> None:
         if self.character.isVisible():
             self.bubble.hide()
             self.character.hide()
+            keep = self.settings_repo.get_bool(policies.KEY_TIMER_TRAY_SHOW, True)
+            self.character.sync_timer_bubble(standalone=keep)
         else:
             self.character.show()
             self.character.raise_()
+            self.character.sync_timer_bubble()
+
+    def show_from_timer_bubble(self) -> None:
+        """타이머 풍선 클릭: 캐릭터 복원 + 말풍선 열기."""
+        if not self.character.isVisible():
+            self.character.show()
+            self.character.raise_()
+        if not self.bubble.isVisible():
+            scr = self.character._screen_for(
+                self.character.frameGeometry().center()
+            ).availableGeometry()
+            self.bubble.show_for_character(self.character.frameGeometry(), scr)
+        self.character.sync_timer_bubble()  # 말풍선 열렸으니 풍선 숨김
+
+    def _on_timer_finished(self, todo_id: int) -> None:
+        self.tray.notify("타이머 완료", "설정한 시간이 끝났어요.")
+        # 자동 완료 옵션이 켜져 있으면 할일을 완료 처리.
+        # CharacterWidget 이 먼저 timer_done 리액션을 시작하므로(시그널 연결 순서),
+        # 여기서 발생하는 todo_completed 의 done 이미지는 억제되어 timer_done 만 출력된다.
+        if self.timer_service.auto_complete:
+            t = self.todo_repo.get(todo_id)
+            if t is not None and not t.completed:
+                self.todo_service.toggle(todo_id)
+
+    def _validate_timer(self, _iso: str) -> None:
+        """타이머 대상 할일이 삭제되거나 완료되면 타이머를 해제한다."""
+        tid = self.timer_service.active_todo_id
+        if tid is None:
+            return
+        t = self.todo_repo.get(tid)
+        if t is None or t.completed:
+            self.timer_service.cancel()
+
+    # ── 전역 단축키 ─────────────────────────────────────────
+    def _register_hotkeys(self) -> None:
+        self.hotkeys.unregister_all()
+        s = self.settings_repo
+        specs = [
+            (policies.KEY_HOTKEY_TODO, policies.DEFAULT_HOTKEY_TODO, self.toggle_bubble),
+            (policies.KEY_HOTKEY_CHARACTER, policies.DEFAULT_HOTKEY_CHARACTER, self.toggle_character),
+            (policies.KEY_HOTKEY_TODAY, policies.DEFAULT_HOTKEY_TODAY, self.go_today),
+        ]
+        for key, default, cb in specs:
+            seq = s.get(key, default) or default
+            self.hotkeys.register(seq, cb)
+
+    def toggle_bubble(self) -> None:
+        self.character._toggle_bubble()
+
+    def go_today(self) -> None:
+        self.bubble.go_today()
+        if not self.bubble.isVisible():
+            scr = self.character._screen_for(
+                self.character.frameGeometry().center()
+            ).availableGeometry()
+            self.bubble.show_for_character(self.character.frameGeometry(), scr)
+        else:
+            self.bubble.raise_()
 
     def quit_app(self) -> None:
         if getattr(self, "_quitting", False):
             return
         self._quitting = True
         try:
+            self.hotkeys.unregister_all()
             self.notification.stop()
+            self.timer_service.cancel()
+            self.timer_bubble.hide()
             self.tray.hide()          # 트레이 잔상/지연 방지: 먼저 내림
             self.bubble.hide()
             self.character._save_position()
@@ -113,13 +216,50 @@ class AppController:
         self.notification.start()
 
 
+class _WindowShowLogger:
+    """진단용: 최상위 위젯이 표시(Show)/숨김(Hide)될 때 클래스/지오메트리를 로깅한다.
+    환경변수 CT_DEBUG_WINDOWS=1 일 때만 설치된다('떴다 사라지는 원인미상 창' 추적용)."""
+
+    def __init__(self):
+        from PyQt6.QtCore import QObject
+
+        class _Filter(QObject):
+            def eventFilter(self, obj, event):
+                from PyQt6.QtCore import QEvent
+                from PyQt6.QtWidgets import QWidget
+
+                et = event.type()
+                if et in (QEvent.Type.Show, QEvent.Type.Hide) and \
+                        isinstance(obj, QWidget) and obj.isWindow():
+                    kind = "SHOW" if et == QEvent.Type.Show else "HIDE"
+                    log.info(
+                        "[WINDOW-%s] %s title=%r geom=%s flags=0x%X",
+                        kind, obj.__class__.__name__, obj.windowTitle(),
+                        obj.geometry().getRect(), int(obj.windowFlags()),
+                    )
+                return False
+
+        self._filter = _Filter()
+
+    def install(self, app) -> None:
+        app.installEventFilter(self._filter)
+
+
 def main() -> int:
+    import os
+
     logging_config.setup_logging()
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)  # 트레이 상주: 창 닫혀도 종료 안 함
     # 툴팁 페이드/애니메이션 끄기 → 0.5초 뒤 즉시 표시
     app.setEffectEnabled(Qt.UIEffect.UI_FadeTooltip, False)
     app.setEffectEnabled(Qt.UIEffect.UI_AnimateTooltip, False)
+
+    _win_logger = None
+    if os.environ.get("CT_DEBUG_WINDOWS"):
+        _win_logger = _WindowShowLogger()
+        _win_logger.install(app)
+        log.info("[WINDOW-SHOW] 진단 로거 활성화됨")
 
     if not Tray_is_available():
         QMessageBox.warning(None, "트레이 없음", "시스템 트레이를 사용할 수 없습니다.")

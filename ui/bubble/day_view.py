@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QLabel, QScrollArea, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QLabel, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
 
 from ui.bubble.todo_item import MIME_TODO, TodoItem
 from ui.bubble.week_view import LIST_HEIGHT  # 일간 목록 높이를 주간과 동일하게 공유
@@ -14,10 +14,14 @@ from ui.bubble.week_view import LIST_HEIGHT  # 일간 목록 높이를 주간과
 class _DropList(QWidget):
     """실제 할일 행들을 담고 드롭(정렬/이동)을 처리하는 안쪽 위젯."""
 
-    def __init__(self, iso: str, service, parent=None):
+    def __init__(self, iso: str, service, timer_service=None, settings_repo=None,
+                 events=None, parent=None):
         super().__init__(parent)
         self.iso = iso
         self._service = service
+        self._timer = timer_service
+        self._settings = settings_repo
+        self._events = events
         self.setAcceptDrops(True)
 
         self._lay = QVBoxLayout(self)
@@ -43,7 +47,8 @@ class _DropList(QWidget):
             self._lay.addWidget(empty)
             return
         for t in todos:
-            item = TodoItem(t, self._service)
+            item = TodoItem(t, self._service, timer_service=self._timer,
+                            settings_repo=self._settings, events=self._events)
             item.request_remove.connect(self._service.remove)
             self._lay.addWidget(item)
             self._items.append(item)
@@ -80,15 +85,19 @@ class _DropList(QWidget):
 
 
 class DayView(QWidget):
-    def __init__(self, iso: str, service, parent=None):
+    def __init__(self, iso: str, service, timer_service=None, settings_repo=None,
+                 events=None, parent=None):
         super().__init__(parent)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
 
         self._scroll = QScrollArea()
         self._scroll.setWidgetResizable(True)
-        self._scroll.setFixedHeight(LIST_HEIGHT)
+        # 고정 대신 최소 높이 + 세로 확장 → 말풍선을 키우면 목록 영역이 늘어난다
+        self._scroll.setMinimumHeight(LIST_HEIGHT)
+        self._scroll.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self._scroll.setWidget(_DropList(iso, service))
+        self._scroll.setWidget(_DropList(iso, service, timer_service, settings_repo, events))
         outer.addWidget(self._scroll)

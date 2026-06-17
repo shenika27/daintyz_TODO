@@ -25,13 +25,15 @@ class TodoService:
 
     # ── 조회 ────────────────────────────────────────────────
     def list_for_date(self, iso: str) -> list[Todo]:
-        self._recurring.ensure_for_date(date.fromisoformat(iso))
+        # 반복 할일은 '오늘'에만 생성한다(미래/과거 날짜는 박제하지 않음).
+        # 오늘을 조회하는 순간 그 날 회차가 생기고, 미래 날짜는 그 날이 와야 생긴다.
+        if iso == date.today().isoformat():
+            self._recurring.ensure_for_date(date.today())
         return self._repo.list_for_date(iso)
 
-    def ensure_range(self, start_iso: str, end_iso: str) -> None:
-        self._recurring.ensure_for_range(
-            date.fromisoformat(start_iso), date.fromisoformat(end_iso)
-        )
+    def ensure_today_recurring(self) -> None:
+        """오늘 날짜의 반복 회차를 생성(앱 시작·자정 넘김 시 컨트롤러가 호출)."""
+        self._recurring.ensure_for_date(date.today())
 
     def has_overdue(self, today_iso: str) -> bool:
         """오늘 이전에 미완료 할일이 남아 있는지(캐릭터 상태 표시용)."""
@@ -63,8 +65,11 @@ class TodoService:
         t = self._repo.get(todo_id)
         if not t:
             return
-        self._repo.set_completed(todo_id, not t.completed)
+        now_completed = not t.completed
+        self._repo.set_completed(todo_id, now_completed)
         self._notify(t.due_date)
+        if now_completed:  # 미완료→완료 전환 순간만(캐릭터 리액션용)
+            self._events.todo_completed.emit()
 
     def edit(self, todo_id: int, content: str) -> None:
         content = content.strip()
@@ -72,6 +77,14 @@ class TodoService:
         if not t or not content:
             return
         self._repo.set_content(todo_id, content)
+        self._notify(t.due_date)
+
+    def duplicate(self, todo_id: int) -> None:
+        """할일을 복제해 원본 바로 아래에 같은 내용으로 생성(미완료 상태)."""
+        t = self._repo.get(todo_id)
+        if not t:
+            return
+        self._repo.add_after(t.content, t.due_date, t.sort_order)
         self._notify(t.due_date)
 
     def move(self, todo_id: int, new_iso: str, new_order: int | None = None) -> None:
@@ -120,5 +133,10 @@ class TodoService:
             self._notify(iso)
 
     # ── 내부 ────────────────────────────────────────────────
+    def delete_recurring_todos(self, rule_id: int) -> None:
+        """반복 규칙으로 생성된 할일 전체 삭제 후 화면 갱신."""
+        self._repo.delete_by_recurring(rule_id)
+        self._notify(date.today().isoformat())
+
     def _notify(self, iso: str) -> None:
         self._events.todos_changed.emit(iso)

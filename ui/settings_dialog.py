@@ -5,8 +5,10 @@
 from __future__ import annotations
 
 import logging
+from datetime import date
 
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QKeySequence
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -15,6 +17,8 @@ from PyQt6.QtWidgets import (
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
+    QKeySequenceEdit,
+    QLabel,
     QLineEdit,
     QListWidget,
     QListWidgetItem,
@@ -44,19 +48,24 @@ def _app_version() -> str:
 
 class SettingsDialog(QDialog):
     def __init__(self, settings_repo, events, backup_service, autostart_service,
-                 recurring_repo, parent=None):
+                 recurring_repo, todo_service, parent=None):
         super().__init__(parent)
         self._settings = settings_repo
         self._events = events
         self._backup = backup_service
         self._autostart = autostart_service
         self._rules = recurring_repo
+        self._todo_service = todo_service
 
         self.setWindowTitle(f"설정 — v{_app_version()}")
         self.resize(420, 480)
 
         tabs = QTabWidget()
         tabs.addTab(self._build_general(), "일반")
+        # 캐릭터 이미지 변경이 허용된 빌드에서만 '이미지' 탭 노출
+        if feature_flags.character_edit_enabled():
+            tabs.addTab(self._build_images(), "이미지")
+        tabs.addTab(self._build_shortcuts(), "단축키")
         tabs.addTab(self._build_recurring(), "반복 할일")
 
         root = QVBoxLayout(self)
@@ -65,18 +74,46 @@ class SettingsDialog(QDialog):
         close.clicked.connect(self.accept)
         root.addWidget(close)
 
+    # 상황별 이미지: (표시명, 설정키, resources 폴백 베이스명)
+    _IMAGE_ROWS = [
+        ("기본", policies.KEY_IMAGE_PATH, "character_default"),
+        ("밀린 할일", policies.KEY_IMAGE_OVERDUE, "character_overdue"),
+        ("삭제 시", policies.KEY_IMAGE_DELETE, "character_delete"),
+        ("비활성", policies.KEY_IMAGE_IDLE, "character_idle"),
+        ("완료 리액션", policies.KEY_IMAGE_DONE, "character_done"),
+        ("타이머 중", policies.KEY_IMAGE_WORK, "character_work"),
+        ("타이머 정지", policies.KEY_IMAGE_PAUSE, "character_pause"),
+        ("타이머 완료", policies.KEY_IMAGE_TIMER_DONE, "character_timer_done"),
+        ("목록 열림", policies.KEY_IMAGE_OPEN, "character_open"),
+        ("목록 닫힘", policies.KEY_IMAGE_CLOSED, "character_closed"),
+    ]
+
+    # ── 이미지 탭 ───────────────────────────────────────────
+    def _build_images(self) -> QWidget:
+        w = QWidget()
+        form = QFormLayout(w)
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
+        intro = QLabel("상황별 캐릭터 이미지. 비우면 resources 의 기본 파일로 표시됩니다.")
+        intro.setObjectName("subText")
+        intro.setWordWrap(True)
+        form.addRow(intro)
+        for name, key, base in self._IMAGE_ROWS:
+            self._add_image_row(form, name, key, base)
+        return w
+
     # ── 일반 탭 ─────────────────────────────────────────────
     def _build_general(self) -> QWidget:
         w = QWidget()
         form = QFormLayout(w)
 
-        # 캐릭터 이미지 (상황별). 비우면 기본 이미지로 표시됨.
-        # 빌드에서 캐릭터 변경을 끈 경우(미지원) 이미지 칸을 숨긴다.
-        if feature_flags.character_edit_enabled():
-            self._add_image_row(form, "이미지 · 기본", policies.KEY_IMAGE_PATH)
-            self._add_image_row(form, "이미지 · 밀린 할일", policies.KEY_IMAGE_OVERDUE)
-            self._add_image_row(form, "이미지 · 삭제 시", policies.KEY_IMAGE_DELETE)
-            self._add_image_row(form, "이미지 · 비활성", policies.KEY_IMAGE_IDLE)
+        # 캐릭터 크기(%)
+        self._char_scale = QSpinBox()
+        self._char_scale.setRange(50, 200)
+        self._char_scale.setSingleStep(10)
+        self._char_scale.setSuffix(" %")
+        self._char_scale.setValue(int(self._settings.get(policies.KEY_CHAR_SCALE, "100") or "100"))
+        self._char_scale.valueChanged.connect(self._on_scale_changed)
+        form.addRow("캐릭터 크기", self._char_scale)
 
         # 비활성 판정 시간 (0 = 기능 끔)
         self._idle_hours = QSpinBox()
@@ -118,6 +155,24 @@ class SettingsDialog(QDialog):
         )
         form.addRow("월 마지막날 규칙", self._overflow)
 
+        # 타이머 −/+ 증감 간격 (1분 미만은 항상 5초 고정)
+        self._timer_step = QComboBox()
+        for label, secs in (
+            ("10초", 10), ("20초", 20), ("30초", 30),
+            ("1분", 60), ("5분", 300), ("10분", 600),
+        ):
+            self._timer_step.addItem(label, secs)
+        self._select_data(
+            self._timer_step,
+            self._settings.get_int(policies.KEY_TIMER_STEP, policies.DEFAULT_TIMER_STEP),
+        )
+        self._timer_step.currentIndexChanged.connect(
+            lambda: self._settings.set(
+                policies.KEY_TIMER_STEP, str(self._timer_step.currentData())
+            )
+        )
+        form.addRow("타이머 증감 간격", self._timer_step)
+
         # 테마
         self._theme = QComboBox()
         self._theme.addItem("자동 (시스템)", "system")
@@ -127,8 +182,28 @@ class SettingsDialog(QDialog):
         self._theme.currentIndexChanged.connect(self._change_theme)
         form.addRow("테마", self._theme)
 
+        # 트레이 최소화 시 타이머 풍선 유지
+        self._timer_tray_cb = QCheckBox("트레이로 최소화해도 타이머 풍선 유지")
+        self._timer_tray_cb.setChecked(
+            self._settings.get_bool(policies.KEY_TIMER_TRAY_SHOW, True)
+        )
+        self._timer_tray_cb.toggled.connect(
+            lambda on: self._settings.set(policies.KEY_TIMER_TRAY_SHOW, "1" if on else "0")
+        )
+        form.addRow("", self._timer_tray_cb)
+
+        # 팝업 열기/닫기 페이드 애니메이션
+        self._anim_cb = QCheckBox("팝업 열기/닫기 애니메이션")
+        self._anim_cb.setChecked(
+            self._settings.get_bool(policies.KEY_BUBBLE_ANIMATION, True)
+        )
+        self._anim_cb.toggled.connect(
+            lambda on: self._settings.set(policies.KEY_BUBBLE_ANIMATION, "1" if on else "0")
+        )
+        form.addRow("", self._anim_cb)
+
         # 자동시작
-        self._autostart_cb = QCheckBox("로그인 시 자동 시작")
+        self._autostart_cb = QCheckBox("부팅 시 자동 시작")
         if self._autostart.supported:
             self._autostart_cb.setChecked(self._autostart.is_enabled())
             self._autostart_cb.toggled.connect(self._toggle_autostart)
@@ -155,7 +230,36 @@ class SettingsDialog(QDialog):
         if idx >= 0:
             combo.setCurrentIndex(idx)
 
-    def _add_image_row(self, form: QFormLayout, label: str, key: str) -> None:
+    def _resource_filename(self, base: str) -> str:
+        """resources 에 있는 폴백 파일명(png→gif). 없으면 'base.* (없음)'."""
+        from core import paths
+
+        try:
+            res_dir = paths.resource_dir()
+            for ext in (".png", ".gif"):
+                if (res_dir / (base + ext)).exists():
+                    return base + ext
+        except Exception:  # noqa: BLE001
+            pass
+        return f"{base}.* (없음)"
+
+    def _make_image_label(self, name: str, base: str) -> QWidget:
+        """항목명 + 그 하단에 resources 파일명을 작은 회색 글씨로."""
+        box = QWidget()
+        v = QVBoxLayout(box)
+        v.setContentsMargins(0, 0, 0, 0)
+        v.setSpacing(0)
+        title = QLabel(name)
+        fname = QLabel(self._resource_filename(base))
+        fname.setObjectName("subText")
+        f = fname.font()
+        f.setPointSize(max(7, f.pointSize() - 1))
+        fname.setFont(f)
+        v.addWidget(title)
+        v.addWidget(fname)
+        return box
+
+    def _add_image_row(self, form: QFormLayout, name: str, key: str, base: str) -> None:
         edit = QLineEdit(self._settings.get(key, "") or "")
         edit.editingFinished.connect(lambda: self._apply_image(key, edit.text().strip(), edit))
         browse = QPushButton("찾아보기")
@@ -167,7 +271,7 @@ class SettingsDialog(QDialog):
         row.addWidget(edit)
         row.addWidget(browse)
         row.addWidget(clear)
-        form.addRow(label, row)
+        form.addRow(self._make_image_label(name, base), row)
 
     def _pick_image(self, key: str, edit: QLineEdit) -> None:
         path, _ = QFileDialog.getOpenFileName(
@@ -184,6 +288,62 @@ class SettingsDialog(QDialog):
     def _change_theme(self) -> None:
         self._settings.set(policies.KEY_THEME, self._theme.currentData())
         self._events.theme_changed.emit()
+
+    def _on_scale_changed(self, v: int) -> None:
+        self._settings.set(policies.KEY_CHAR_SCALE, str(v))
+        self._events.character_scale_changed.emit()
+
+    # ── 단축키 탭 ───────────────────────────────────────────
+    def _build_shortcuts(self) -> QWidget:
+        w = QWidget()
+        v = QVBoxLayout(w)
+        form = QFormLayout()
+        v.addLayout(form)
+
+        # (라벨, 설정키, 기본값)
+        self._hotkey_defs = [
+            ("투두 목록 토글", policies.KEY_HOTKEY_TODO, policies.DEFAULT_HOTKEY_TODO),
+            ("캐릭터 토글", policies.KEY_HOTKEY_CHARACTER, policies.DEFAULT_HOTKEY_CHARACTER),
+            ("오늘로 이동", policies.KEY_HOTKEY_TODAY, policies.DEFAULT_HOTKEY_TODAY),
+        ]
+        self._hotkey_edits: dict[str, QKeySequenceEdit] = {}
+        for label, key, default in self._hotkey_defs:
+            seq = self._settings.get(key, default) or default
+            edit = QKeySequenceEdit(QKeySequence(seq))
+            edit.setMaximumSequenceLength(1)  # 한 조합만
+            edit.editingFinished.connect(lambda k=key: self._save_hotkey(k))
+            self._hotkey_edits[key] = edit
+            form.addRow(label, edit)
+
+        reset = QPushButton("기본값으로 되돌리기")
+        reset.clicked.connect(self._reset_hotkeys)
+        v.addWidget(reset)
+
+        info = QLabel("입력란을 클릭하고 원하는 조합을 누르세요. 같은 조합은 중복될 수 없습니다.")
+        info.setObjectName("subText")
+        info.setWordWrap(True)
+        v.addWidget(info)
+        v.addStretch(1)
+        return w
+
+    def _save_hotkey(self, key: str) -> None:
+        seq = self._hotkey_edits[key].keySequence().toString()
+        default = next(d for _l, k, d in self._hotkey_defs if k == key)
+        # 중복 검사: 다른 항목과 같은 조합이면 되돌림
+        for other, edit in self._hotkey_edits.items():
+            if other != key and seq and edit.keySequence().toString() == seq:
+                QMessageBox.warning(self, "단축키", "이미 사용 중인 조합입니다.")
+                prev = self._settings.get(key, default) or default
+                self._hotkey_edits[key].setKeySequence(QKeySequence(prev))
+                return
+        self._settings.set(key, seq)
+        self._events.hotkeys_changed.emit()
+
+    def _reset_hotkeys(self) -> None:
+        for _label, key, default in self._hotkey_defs:
+            self._settings.set(key, default)
+            self._hotkey_edits[key].setKeySequence(QKeySequence(default))
+        self._events.hotkeys_changed.emit()
 
     def _toggle_autostart(self, on: bool) -> None:
         self._autostart.set_enabled(on)
@@ -289,6 +449,9 @@ class SettingsDialog(QDialog):
         elif t == "monthly":
             day_of_month = self._dom.value()
         self._rules.add(content, t, weekdays=weekdays, day_of_month=day_of_month)
+        # 새 규칙이 오늘에 해당하면 즉시 생성하고 목록 갱신(반복은 '당일 생성')
+        self._todo_service.ensure_today_recurring()
+        self._events.todos_changed.emit(date.today().isoformat())
         self._r_content.clear()
         self._reload_rules()
 
@@ -297,5 +460,19 @@ class SettingsDialog(QDialog):
         if not it:
             return
         rule_id = it.data(Qt.ItemDataRole.UserRole)
+
+        # 이미 생성된 반복 할일 처리 선택: 전체 삭제 / 남기기 / 취소
+        box = QMessageBox(self)
+        box.setWindowTitle("반복 할일 삭제")
+        box.setText("규칙을 삭제합니다.\n이미 생성된 반복 할일도 함께 삭제할까요?")
+        del_all = box.addButton("전체 삭제", QMessageBox.ButtonRole.DestructiveRole)
+        keep = box.addButton("남기기", QMessageBox.ButtonRole.AcceptRole)
+        box.addButton("취소", QMessageBox.ButtonRole.RejectRole)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked not in (del_all, keep):
+            return  # 취소
+        if clicked is del_all:
+            self._todo_service.delete_recurring_todos(rule_id)
         self._rules.delete(rule_id)
         self._reload_rules()

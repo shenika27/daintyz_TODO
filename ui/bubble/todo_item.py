@@ -26,11 +26,13 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMenu,
     QToolButton,
     QToolTip,
     QWidget,
 )
 
+from domain import policies
 from domain.models import Todo
 
 MIME_TODO = "application/x-character-todo"
@@ -40,14 +42,19 @@ _TOOLTIP_DELAY_MS = 500
 class TodoItem(QWidget):
     request_remove = pyqtSignal(int)
 
-    def __init__(self, todo: Todo, service, compact: bool = False, parent=None):
+    def __init__(self, todo: Todo, service, compact: bool = False,
+                 timer_service=None, settings_repo=None, events=None, parent=None):
         super().__init__(parent)
         self.todo = todo
         self._service = service
+        self._timer = timer_service
+        self._settings = settings_repo
+        self._events = events
         self._compact = compact
         self._press_pos: QPoint | None = None
         self._dragged = False
         self._editing = False
+        self._timer_active = bool(timer_service and timer_service.is_active(todo.id))
 
         self.setObjectName("todoRow")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
@@ -61,6 +68,21 @@ class TodoItem(QWidget):
         self.check.setCursor(Qt.CursorShape.PointingHandCursor)
         self.check.stateChanged.connect(self._on_checkbox)
         lay.addWidget(self.check)
+        # setVisible 은 반드시 addWidget(부모 지정) 뒤에. 부모 없는 위젯에 setVisible(True)
+        # 를 하면 잠깐 독립 최상위 창으로 떴다 사라지는 깜빡임이 생긴다.
+        self.check.setVisible(not self._timer_active)
+
+        # 타이머 실행 중인 항목은 체크박스 대신 타이머 아이콘(클릭=완료) 표시
+        self.timer_btn = QToolButton()
+        self.timer_btn.setObjectName("timerBtn")
+        self.timer_btn.setIcon(QIcon(_clock_pixmap(16, "#7F77DD")))
+        self.timer_btn.setAutoRaise(True)
+        self.timer_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.timer_btn.setFixedSize(20, 20)
+        self.timer_btn.setToolTip("타이머 중 · 클릭하면 완료")
+        self.timer_btn.clicked.connect(self._complete_and_clear_timer)
+        lay.addWidget(self.timer_btn)
+        self.timer_btn.setVisible(self._timer_active)  # addWidget 뒤에(최상위 창 깜빡임 방지)
 
         self.label = QLabel()
         self.label.setObjectName("todoLabel")
@@ -76,6 +98,12 @@ class TodoItem(QWidget):
         self.editor.editingFinished.connect(self._commit_edit)
         lay.addWidget(self.editor, 1)
 
+        # 반복 규칙으로 자동 생성된 항목 표시 뱃지
+        self.recur_badge = QLabel("반복")
+        self.recur_badge.setObjectName("recurBadge")
+        self.recur_badge.setVisible(self.todo.is_recurring_instance)
+        lay.addWidget(self.recur_badge)
+
         # hover 편집/삭제 (오른쪽 끝 고정: 연필 → 휴지통 순, 간격 좁게)
         self.pencil = QToolButton()
         self.pencil.setObjectName("pencilBtn")
@@ -84,6 +112,7 @@ class TodoItem(QWidget):
         self.pencil.setCursor(Qt.CursorShape.PointingHandCursor)
         self.pencil.setFixedSize(20, 20)
         self.pencil.setVisible(False)
+        self.pencil.setToolTip("편집")
         self.pencil.clicked.connect(self._enter_edit)
 
         self.xbtn = QToolButton()
@@ -93,6 +122,7 @@ class TodoItem(QWidget):
         self.xbtn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.xbtn.setFixedSize(20, 20)
         self.xbtn.setVisible(False)
+        self.xbtn.setToolTip("삭제")
         self.xbtn.clicked.connect(lambda: self.request_remove.emit(self.todo.id))
 
         if not compact:
@@ -165,8 +195,13 @@ class TodoItem(QWidget):
         QToolTip.hideText()
 
     def _show_tooltip(self) -> None:
-        if self.underMouse() and not self._editing:
-            QToolTip.showText(QCursor.pos(), self.todo.content, self)
+        if not self.underMouse() or self._editing:
+            return
+        # 편집/삭제 버튼 위에서는 버튼 자체 툴팁('편집'/'삭제')을 살린다.
+        child = self.childAt(self.mapFromGlobal(QCursor.pos()))
+        if child in (self.pencil, self.xbtn):
+            return
+        QToolTip.showText(QCursor.pos(), self.todo.content, self)
 
     # ── 마우스: 클릭=토글 / 드래그=이동 ─────────────────────
     def mousePressEvent(self, e) -> None:
@@ -174,8 +209,51 @@ class TodoItem(QWidget):
             self._press_pos = e.position().toPoint()
             self._dragged = False
             e.accept()        # 이 위젯이 마우스를 잡아야 move 이벤트가 들어와 드래그가 시작됨
+        elif e.button() == Qt.MouseButton.RightButton:
+            self._show_context_menu(e.globalPosition().toPoint())
         else:
             super().mousePressEvent(e)
+
+    # ── 우클릭 메뉴(타이머 + 복제) ──────────────────────────
+    def _show_context_menu(self, global_pos: QPoint) -> None:
+        menu = QMenu(self)
+        timer_running = self._timer is not None and self._timer.is_active(self.todo.id)
+        if timer_running:
+            act = menu.addAction("타이머 해제")
+            act.triggered.connect(lambda: self._timer.cancel_for(self.todo.id))
+        else:
+            if self._timer is not None and not self.todo.completed:
+                act = menu.addAction("타이머 설정")
+                act.triggered.connect(self._set_timer)
+            dup = menu.addAction("복제")
+            dup.triggered.connect(lambda: self._service.duplicate(self.todo.id))
+        # 주간(compact) 뷰는 hover 삭제 아이콘이 없으므로 메뉴에 '삭제' 제공
+        # (편집은 일별 뷰에서)
+        if self._compact:
+            menu.addSeparator()
+            rm = menu.addAction("삭제")
+            rm.triggered.connect(lambda: self.request_remove.emit(self.todo.id))
+        if menu.isEmpty():
+            return
+        menu.exec(global_pos)
+
+    def _set_timer(self) -> None:
+        from ui.timer_setup_dialog import TimerSetupDialog
+
+        replacing = self._timer.is_active() and not self._timer.is_active(self.todo.id)
+        dlg = TimerSetupDialog(
+            self.todo.content, self._settings, replacing=replacing,
+            parent=self.window(),
+        )
+        if dlg.exec() and dlg.result_seconds:
+            self._timer.start(self.todo.id, self.todo.content, dlg.result_seconds,
+                              auto_complete=dlg.auto_complete)
+
+    def _complete_and_clear_timer(self) -> None:
+        """타이머 아이콘 클릭 = 완료 처리(+타이머 해제)."""
+        if self._timer is not None:
+            self._timer.cancel_for(self.todo.id)
+        self._service.toggle(self.todo.id)
 
     def mouseMoveEvent(self, e) -> None:
         if self._press_pos is None or self._editing:
@@ -189,8 +267,27 @@ class TodoItem(QWidget):
         if e.button() != Qt.MouseButton.LeftButton:
             return
         if not self._dragged and not self._editing and self._press_pos is not None:
-            self._service.toggle(self.todo.id)   # 본문 클릭 = 완료 토글
+            if self._timer_active:
+                # 타이머 패널이 닫혀 있으면 본문 클릭 = 패널 열기(#4),
+                # 열려 있으면 기존대로 완료(+해제).
+                if self._timer_panel_open():
+                    self._complete_and_clear_timer()
+                else:
+                    self._open_timer_panel()
+            else:
+                self._service.toggle(self.todo.id)   # 본문 클릭 = 완료 토글
         self._press_pos = None
+
+    def _timer_panel_open(self) -> bool:
+        if self._settings is None:
+            return False
+        return (self._settings.get(policies.KEY_TIMER_PANEL, "0") or "0") == "1"
+
+    def _open_timer_panel(self) -> None:
+        """타이머 중인 할일 클릭 시 닫혀 있던 타이머 패널을 연다(#4).
+        설정 저장은 BubbleWidget 이 처리하므로 시그널만 쏜다."""
+        if self._events is not None:
+            self._events.timer_panel_changed.emit(True)
 
     def _start_drag(self) -> None:
         self._dragged = True
@@ -261,6 +358,28 @@ def _trash_pixmap(size: int, color: str) -> QPixmap:
     p.drawLine(int(s * 0.34), int(s * 0.80), int(s * 0.66), int(s * 0.80))
     # 세로 줄
     p.drawLine(int(s * 0.50), int(s * 0.40), int(s * 0.50), int(s * 0.72))
+    p.end()
+    return pm
+
+
+def _clock_pixmap(size: int, color: str) -> QPixmap:
+    """시계(타이머) 아이콘 픽스맵."""
+    pm = QPixmap(size, size)
+    pm.fill(QColor(0, 0, 0, 0))
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    pen = QPen(QColor(color))
+    pen.setWidthF(max(1.4, size * 0.09))
+    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+    pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+    p.setPen(pen)
+    s = size
+    # 테두리 원
+    p.drawEllipse(int(s * 0.16), int(s * 0.22), int(s * 0.68), int(s * 0.68))
+    # 시침/분침
+    cx, cy = int(s * 0.50), int(s * 0.56)
+    p.drawLine(cx, cy, cx, int(s * 0.34))
+    p.drawLine(cx, cy, int(s * 0.66), cy)
     p.end()
     return pm
 

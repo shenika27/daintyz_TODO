@@ -19,11 +19,43 @@ KEY_OVERDUE_PANEL = "bubble.overdue_panel"         # '0' | '1' — 밀린 할일
 KEY_OVERDUE_PANEL_SIDE = "bubble.overdue_panel_side"  # 'right' | 'left'
 KEY_IMAGE_IDLE = "character.image_idle"            # 비활성 상태(마지막 활동 n시간 초과)
 KEY_IDLE_HOURS = "character.idle_hours"            # 비활성 판정 기준 시간 (0=비활성화)
+KEY_IMAGE_DONE = "character.image_done"            # 할일 완료 리액션
+KEY_IMAGE_WORK = "character.image_work"            # 타이머 실행 중
+KEY_IMAGE_PAUSE = "character.image_pause"          # 타이머 정지(일시정지) 중
+KEY_IMAGE_TIMER_DONE = "character.image_timer_done"  # 타이머 완료(만료) 리액션
+KEY_TIMER_TRAY_SHOW = "timer.tray_show"            # '0' | '1' — 트레이 최소화 시 타이머 풍선 유지
+KEY_TIMER_PANEL = "bubble.timer_panel"             # '0' | '1' — 타이머 패널 상시 표시(할일 없이도)
+KEY_LIST_SHOW = "bubble.list_show"                 # '0' | '1' — 할일 목록(말풍선) 그리드 표시 상태
+KEY_IMAGE_OPEN = "character.image_open"            # 목록(말풍선) 열린 상태
+KEY_IMAGE_CLOSED = "character.image_closed"        # 목록(말풍선) 닫힌 상태
+KEY_BUBBLE_SIZE_PREFIX = "bubble.size."            # + 'day'|'week'|'month' → 'WxH' (사용자 커스텀 크기)
+KEY_CHAR_SCALE = "character.scale"                 # 캐릭터 크기 % (50~200)
+KEY_HOTKEY_TODO = "hotkey.todo"                    # 투두 목록 토글
+KEY_HOTKEY_CHARACTER = "hotkey.character"          # 캐릭터 토글
+KEY_HOTKEY_TODAY = "hotkey.today"                  # 오늘로 이동
+KEY_BUBBLE_ANIMATION = "app.bubble_animation"      # '0' | '1' — 팝업 열기/닫기 페이드 애니메이션
+KEY_TIMER_AUTO_COMPLETE = "timer.auto_complete"    # '0' | '1' — 타이머 완료 시 할일 자동 완료
+KEY_TIMER_STEP = "timer.adjust_step"               # 타이머 −/+ 증감 간격(초). 1분 미만은 항상 5초 고정.
+
+DEFAULT_TIMER_STEP = 60   # 타이머 증감 간격 기본값(1분)
+
+# 글로벌 단축키 기본값
+DEFAULT_HOTKEY_TODO = "Ctrl+Shift+T"
+DEFAULT_HOTKEY_CHARACTER = "Ctrl+Shift+C"
+DEFAULT_HOTKEY_TODAY = "Ctrl+Shift+D"
+
+
+WEEKDAYS_KR = ["일", "월", "화", "수", "목", "금", "토"]
 
 
 def app_weekday(d: date) -> int:
     """앱 기준 요일: 0=일 ~ 6=토 (Python isoweekday 월1..일7 → %7)."""
     return d.isoweekday() % 7
+
+
+def fmt_md(d: date) -> str:
+    """'6/17(수)' 형식의 짧은 날짜 표기(요일 포함)."""
+    return f"{d.month}/{d.day}({WEEKDAYS_KR[app_weekday(d)]})"
 
 
 def week_range(anchor: date) -> tuple[date, date]:

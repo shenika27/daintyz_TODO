@@ -50,8 +50,10 @@ build\build.bat
   | 기본(오늘·평상시) | `character_default.png` / `.gif` | 필수(없으면 코드로 그린 기본 캐릭터) |
   | 밀린 할일 있을 때 | `character_overdue.png` / `.gif` | 선택(없으면 기본으로 폴백) |
   | 삭제(캐릭터에 끌어다 둘 때) | `character_delete.png` / `.gif` | 선택(없으면 기본으로 폴백) |
+  | 비활성(마지막 활동 후 n시간 초과) | `character_idle.png` / `.gif` | 선택(없으면 기본으로 폴백) |
+  | 완료 리액션(체크 시 잠깐) | `character_done.png` / `.gif` | 선택(없으면 리액션 생략) |
 
-  우선순위는 삭제 > 밀린 할일 > 기본. 투명 배경 권장이며 앱이 비율 유지로 축소합니다.
+  우선순위는 삭제 > 완료 리액션 > 밀린 할일 > 비활성 > 기본. 투명 배경 권장이며 앱이 비율 유지로 축소합니다.
   **GIF는 애니메이션으로 재생됩니다**(현재 상황의 GIF만 재생). PNG는 정지 이미지입니다.
 - 설치본(선택): Inno Setup 설치 후 `set MAKE_INSTALLER=1` 로 빌드하면
   `build\installer_out\CharacterTodo-Setup-x.y.z.exe` 도 생성됩니다(보통은 불필요).

@@ -6,12 +6,13 @@
 from __future__ import annotations
 
 from PyQt6.QtCore import QPointF, Qt
-from PyQt6.QtGui import QColor, QPainter, QPen, QPixmap
+from PyQt6.QtGui import QColor, QPainter, QPen, QPixmap, QPolygonF
 from PyQt6.QtWidgets import QApplication
 
 from core import paths
 
 _CHECK_VER = "v1"  # 체크마크 디자인 바뀌면 올려서 캐시 갱신
+_ARROW_VER = "v1"  # 스핀박스 화살표 디자인 바뀌면 올려서 캐시 갱신
 
 LIGHT = {
     "bg": "#FFFFFF",
@@ -26,8 +27,9 @@ LIGHT = {
     "check_border": "#B4B2A9",
     "red": "#D85A30",
     "ok": "#2E9E5B",
-    "todo_red": "#D9785C",   # 옅은 빨강 — 월간 '할일' 개수
-    "done_green": "#6FA83A",  # 연두 — 월간 '완료' 개수
+    "badge_todo": "#F2A98F",   # 월간 '할일' 배지 배경(옅은 빨강, 검정 텍스트)
+    "badge_done": "#9FD06A",   # 월간 '완료' 배지 배경(연두, 검정 텍스트)
+    "badge_text": "#1A1A1A",   # 라이트: 검정
     "dim": "#A3A29C",
 }
 
@@ -44,8 +46,9 @@ DARK = {
     "check_border": "#5C5C66",
     "red": "#F09595",
     "ok": "#5BC081",
-    "todo_red": "#E8A28C",   # 옅은 빨강 — 월간 '할일' 개수
-    "done_green": "#A6D161",  # 연두 — 월간 '완료' 개수
+    "badge_todo": "#8B3A28",   # 월간 '할일' 배지 배경(진한 빨강, 흰 텍스트)
+    "badge_done": "#3C6E2A",   # 월간 '완료' 배지 배경(진한 초록, 흰 텍스트)
+    "badge_text": "#FFFFFF",   # 다크: 흰색
     "dim": "#6E6E78",
 }
 
@@ -102,6 +105,32 @@ def _check_icon_path() -> str:
     return path.as_posix()
 
 
+def arrow_icon_path(direction: str, color: str) -> str:
+    """스핀박스용 ▲/▼ 삼각형 화살표 PNG를 (방향·색상)별로 캐시에 만들어 경로를 돌려준다.
+    direction: 'up'|'down'. color 는 '#RRGGBB'. 회색/보라 등 호출자가 색을 지정한다."""
+    tag = color.lstrip("#")
+    path = paths.app_data_dir() / f"arrow_{direction}_{tag}_{_ARROW_VER}.png"
+    if not path.exists():
+        size = 16
+        pm = QPixmap(size, size)
+        pm.fill(QColor(0, 0, 0, 0))
+        p = QPainter(pm)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setBrush(QColor(color))
+        p.setPen(Qt.PenStyle.NoPen)
+        s = size
+        if direction == "up":
+            pts = [QPointF(s * 0.5, s * 0.34), QPointF(s * 0.74, s * 0.64),
+                   QPointF(s * 0.26, s * 0.64)]
+        else:
+            pts = [QPointF(s * 0.26, s * 0.36), QPointF(s * 0.74, s * 0.36),
+                   QPointF(s * 0.5, s * 0.66)]
+        p.drawPolygon(QPolygonF(pts))
+        p.end()
+        pm.save(str(path), "PNG")
+    return path.as_posix()
+
+
 def qss(mode: str | None) -> str:
     c = palette(mode)
     check_url = _check_icon_path()
@@ -112,6 +141,7 @@ def qss(mode: str | None) -> str:
     border-radius: 14px;
 }}
 #bubbleRoot QLabel {{ color: {c['text']}; background: transparent; }}
+#bubbleRoot QLabel#bubbleTitle[today="true"] {{ color: {c['accent']}; }}
 #bubbleRoot QLabel#subText {{ color: {c['sub']}; }}
 #bubbleRoot QLabel#emptyText {{ color: {c['sub']}; }}
 #bubbleRoot QLabel#todoLabel[state="done"] {{ color: {c['dim']}; }}
@@ -123,15 +153,17 @@ def qss(mode: str | None) -> str:
     border-radius: 7px;
     padding: 1px 6px;
 }}
-#bubbleRoot QWidget#statBadge {{
-    background: {c['surface']};
-    border-radius: 5px;
-}}
 #bubbleRoot QLabel#badgeTotal {{
-    color: {c['todo_red']}; font-size: 9px;
+    background: {c['badge_todo']}; color: {c['badge_text']};
+    border-radius: 4px; font-size: 9px; padding: 0px 4px;
 }}
 #bubbleRoot QLabel#badgeDone {{
-    color: {c['done_green']}; font-size: 9px;
+    background: {c['badge_done']}; color: {c['badge_text']};
+    border-radius: 4px; font-size: 9px; padding: 0px 4px;
+}}
+#bubbleRoot QLabel#recurBadge {{
+    background: {c['accent_soft']}; color: {c['accent_text']};
+    border-radius: 6px; font-size: 9px; padding: 0px 5px;
 }}
 
 #bubbleRoot QToolButton {{
@@ -140,7 +172,6 @@ def qss(mode: str | None) -> str:
 }}
 #bubbleRoot QToolButton:hover {{ background: {c['surface']}; }}
 #bubbleRoot QToolButton#xBtn {{ color: {c['red']}; }}
-#bubbleRoot QToolButton#undoBtn {{ color: {c['accent']}; }}
 
 #bubbleRoot QLineEdit {{
     border: none; background: {c['surface']}; color: {c['text']};
@@ -178,6 +209,30 @@ def qss(mode: str | None) -> str:
     color: {c['text']}; padding: 4px 6px; border-radius: 7px;
 }}
 #bubbleRoot QLabel#overdueRow:hover {{ background: {c['surface']}; }}
+
+#bubbleRoot QToolButton#timerBtn {{ color: {c['accent']}; }}
+#bubbleRoot QToolButton#timerPlay {{ background: transparent; }}
+#bubbleRoot QToolButton#timerPlay:hover {{ background: transparent; }}
+#bubbleRoot QFrame#timerCell {{
+    background: {c['accent_soft']};
+    border: 1.5px solid {c['accent']}; border-radius: 10px;
+}}
+#bubbleRoot QFrame#timerCell QLabel {{ background: transparent; }}
+#bubbleRoot QLabel#timerTime {{ color: {c['accent_text']}; }}
+#bubbleRoot QLabel#timerName {{ color: {c['sub']}; }}
+#bubbleRoot QToolButton#timerActionBtn {{
+    background: {c['surface']}; color: {c['text']};
+    border: none; border-radius: 8px; padding: 4px 4px;
+}}
+#bubbleRoot QToolButton#timerActionBtn:hover {{ background: {c['accent_soft']}; }}
+#bubbleRoot QToolButton#timerAdjBtn {{
+    background: {c['surface']}; color: {c['text']};
+    border: 1px solid {c['border_strong']}; border-radius: 8px;
+    font-size: 15px; font-weight: bold;
+}}
+#bubbleRoot QToolButton#timerAdjBtn:hover {{
+    background: {c['accent_soft']}; border: 1px solid {c['accent']};
+}}
 
 #bubbleRoot QFrame#dayCol {{ border: 1px solid {c['border']}; border-radius: 8px; }}
 #bubbleRoot QFrame#dayCol[selected="true"] {{ border: 2px solid {c['accent']}; }}

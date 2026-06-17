@@ -1,7 +1,9 @@
-"""ui/bubble/bubble_widget.py — 말풍선: 헤더(확장/최소화/되돌리기) + 뷰 + 입력바.
+"""ui/bubble/bubble_widget.py — 말풍선: 헤더(확장/닫기/최소화) + 뷰 + 입력바.
 
 - 확장 버튼: 일간 → 주간 → 월간 → 일간(오늘) 순환
-- 되돌리기: 화살표 아이콘(↺) 버튼, 삭제 직후에만 노출
+- 닫기(✕): 할일 목록만 닫고 밀린할일·타이머 패널은 캐릭터 상단으로 남긴다(즉시)
+- 최소화(–): 캐릭터 클릭과 동일하게 모든 그리드를 숨긴다(설정 유지)
+- 그리드 표시 설정 저장은 여기(시그널 구독자)에서 일괄 처리한다(메뉴/✕/할일클릭 공통)
 - 테마(밝게/어둡게/자동) 스타일 적용
 - 배치: 캐릭터 기준으로 화면 안쪽 방향으로 펼치고 화면 밖으로 안 나가게 clamp
         (캐릭터 드래그 중에는 말풍선도 따라 이동)
@@ -10,11 +12,24 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
-from PyQt6.QtCore import QPoint, QRect, Qt, QTimer
+from PyQt6.QtCore import (
+    QEasingCurve,
+    QEvent,
+    QParallelAnimationGroup,
+    QPoint,
+    QPropertyAnimation,
+    QRect,
+    Qt,
+    QTimer,
+)
 from PyQt6.QtWidgets import (
+    QApplication,
     QFrame,
+    QGraphicsOpacityEffect,
     QHBoxLayout,
     QLabel,
+    QSizeGrip,
+    QSizePolicy,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -25,25 +40,35 @@ from ui import theme
 from ui.bubble.day_view import DayView
 from ui.bubble.input_bar import InputBar
 from ui.bubble.month_view import MonthView
-from ui.bubble.overdue_panel import OverduePanel
+from ui.bubble.overdue_panel import PANEL_WIDTH, OverduePanel
+from ui.bubble.timer_panel import TimerPanel
 from ui.bubble.week_view import WeekView
 
 _ORDER = ["day", "week", "month"]
 _WIDTH = {"day": 240, "week": 920, "month": 470}
 _GAP = 10
-_PANEL_GAP = 2  # 밀린 할일 패널 ↔ 말풍선 간격
+# 밀린 할일 패널 ↔ 말풍선 간격. 말풍선·패널 각각 8px 투명 그림자 여백이 있어
+# 음수로 그 여백을 겹치게 해야 실제 보이는 간격이 좁아진다(8 + gap + 8 = 보이는 간격).
+_PANEL_GAP = -10  # 보이는 간격 ≈ 6px (기존 ≈18px의 1/3)
+_STACK_GAP = -10  # 같은 컬럼에서 밀린할일 ↕ 타이머 패널 세로 간격(겹치는 그림자 보정)
+_SLIDE_PX = 18  # 열기/닫기 슬라이드 이동 거리(px)
 _MARGIN = 6
-_WD_KR = ["일", "월", "화", "수", "목", "금", "토"]
+# ✕로 목록만 닫아 패널을 캐릭터 위로 띄울 때 밀린할일 패널 높이(말풍선 높이에 안 묶임)
+_DETACHED_OVERDUE_H = 220
 
 
 class BubbleWidget(QWidget):
-    def __init__(self, service, events, settings_repo, parent=None):
+    def __init__(self, service, events, settings_repo, timer_service=None, parent=None):
         super().__init__(parent)
         self._service = service
         self._events = events
         self._settings = settings_repo
+        self._timer = timer_service
         self._char_geom: QRect | None = None
         self._screen_geom: QRect | None = None
+        self._anim: QParallelAnimationGroup | None = None
+        # ✕ 닫기로 말풍선만 내리고 옆 컬럼 패널(밀린할일·타이머)은 화면에 남길 때 True.
+        self._panels_detached = False
 
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
@@ -56,7 +81,8 @@ class BubbleWidget(QWidget):
         self.view_mode = self._settings.get(policies.KEY_LAST_VIEW, "day") or "day"
         if self.view_mode not in _ORDER:
             self.view_mode = "day"
-        self._show_overdue = (self._settings.get(policies.KEY_OVERDUE_PANEL, "1") or "1") == "1"
+        self._show_overdue = self._settings.get_bool(policies.KEY_OVERDUE_PANEL, True)
+        self._show_timer = self._settings.get_bool(policies.KEY_TIMER_PANEL, False)
 
         self._root = QFrame(self)
         self._root.setObjectName("bubbleRoot")
@@ -70,9 +96,18 @@ class BubbleWidget(QWidget):
 
         self._build_header(self._vbox)
         self._view_holder = QWidget()
+        self._view_holder.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+        )
         self._view_layout = QVBoxLayout(self._view_holder)
         self._view_layout.setContentsMargins(0, 0, 0, 0)
-        self._vbox.addWidget(self._view_holder)
+        self._vbox.addWidget(self._view_holder, 1)  # 남는 높이는 목록 영역이 흡수(리사이즈)
+
+        # 사용자 리사이즈용 우하단 그립 + 모드별 커스텀 크기/최소높이 상태
+        self._sizing = False  # 프로그램적 사이징 중에는 크기 저장 안 함
+        self._min_h: dict[str, int] = {}  # 모드별 최소 높이(측정 최댓값 캐시)
+        self._grip = QSizeGrip(self)
+        self._grip.resize(16, 16)
         self._input = InputBar(self._service, lambda: self.selected_iso)
         self._vbox.addWidget(self._input)
 
@@ -80,11 +115,24 @@ class BubbleWidget(QWidget):
         self._overdue_panel = OverduePanel(
             self._service, self._events, self._settings, self.open_day
         )
+        # '타이머' 패널(같은 컬럼에 밀린할일과 위아래로 스택)
+        self._timer_panel = (
+            TimerPanel(self._service, self._events, self._settings, self._timer)
+            if self._timer is not None else None
+        )
 
         self._events.todos_changed.connect(self._on_data_changed)
-        self._events.delete_undo_available.connect(self._set_revert_visible)
         self._events.theme_changed.connect(self.apply_theme)
         self._events.overdue_panel_changed.connect(self._on_overdue_panel_changed)
+        self._events.timer_panel_changed.connect(self._on_timer_panel_changed)
+        if self._timer is not None:
+            self._events.timer_started.connect(self._auto_open_timer_panel)
+            self._events.timer_started.connect(self._on_timer_state)
+            self._events.timer_stopped.connect(self._on_timer_state)
+            self._events.timer_finished.connect(self._on_timer_state)
+            # 정지/재개 시 패널 높이가 바뀌므로(완료/초기화 버튼 자리) 컬럼 재배치
+            self._events.timer_paused.connect(self._on_timer_pause)
+            self._events.timer_resumed.connect(self._on_timer_pause)
 
         self.apply_theme()
         self.render()
@@ -99,6 +147,7 @@ class BubbleWidget(QWidget):
         bar = QHBoxLayout()
         bar.setSpacing(2)
         self._title = QLabel()
+        self._title.setObjectName("bubbleTitle")
         f = self._title.font()
         f.setBold(True)
         f.setPointSize(f.pointSize() + 1)
@@ -122,16 +171,35 @@ class BubbleWidget(QWidget):
         self._next_week.clicked.connect(lambda: self._shift_week(7))
         bar.addWidget(self._next_week)
 
+        # 일간 전/다음 날 이동 (일간 모드에서만 노출, 날짜 우측의 ‹ ›)
+        self._prev_day = QToolButton()
+        self._prev_day.setText("‹")
+        self._prev_day.setToolTip("이전 날")
+        self._prev_day.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._prev_day.setVisible(False)
+        self._prev_day.clicked.connect(lambda: self._shift_day(-1))
+        bar.addWidget(self._prev_day)
+
+        self._next_day = QToolButton()
+        self._next_day.setText("›")
+        self._next_day.setToolTip("다음 날")
+        self._next_day.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._next_day.setVisible(False)
+        self._next_day.clicked.connect(lambda: self._shift_day(1))
+        bar.addWidget(self._next_day)
+
         bar.addStretch(1)
 
-        self._revert = QToolButton()
-        self._revert.setObjectName("undoBtn")
-        self._revert.setText("\u21ba")  # ↺
-        self._revert.setToolTip("되돌리기")
-        self._revert.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._revert.setVisible(False)
-        self._revert.clicked.connect(self._on_revert)
-        bar.addWidget(self._revert)
+        # 되돌리기(↺)는 캐릭터 우클릭 메뉴로 이동(헤더 버튼 과밀 해소).
+
+        # 오늘로 이동 (주간/월간에서만 노출, 전환버튼 왼쪽)
+        self._today_btn = QToolButton()
+        self._today_btn.setText("오늘")
+        self._today_btn.setToolTip("오늘로 이동")
+        self._today_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._today_btn.setVisible(False)
+        self._today_btn.clicked.connect(self.go_today)
+        bar.addWidget(self._today_btn)
 
         self._expand = QToolButton()
         self._expand.setText("\u26f6")  # ⛶ 확장
@@ -142,52 +210,122 @@ class BubbleWidget(QWidget):
 
         self._min = QToolButton()
         self._min.setText("\u2013")  # –
-        self._min.setToolTip("최소화")
+        self._min.setToolTip("최소화 (모두 숨김)")
         self._min.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._min.clicked.connect(self.hide)
+        self._min.clicked.connect(self._minimize)
         bar.addWidget(self._min)
+
+        # 닫기(✕): 말풍선만 닫고 밀린할일·타이머 패널은 화면에 남긴다(최소화 −는 모두 숨김).
+        self._close = QToolButton()
+        self._close.setText("✕")  # ✕
+        self._close.setToolTip("닫기 (패널 유지)")
+        self._close.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._close.clicked.connect(self.close_keep_panels)
+        bar.addWidget(self._close)
 
         target_layout.addLayout(bar)
 
     # ── 렌더 ────────────────────────────────────────────────
     def render(self) -> None:
+        # 보기 모드(일/주/월)가 바뀐 렌더면 새 뷰를 부드럽게 페이드 인(#13)
+        view_changed = getattr(self, "_rendered_view", self.view_mode) != self.view_mode
+        # 뷰를 헐고 다시 짓는 동안의 중간 페인트를 막아 깜빡임/버벅임을 줄인다.
+        self.setUpdatesEnabled(False)
+        try:
+            self._render_body()
+        finally:
+            self.setUpdatesEnabled(True)
+        self._rendered_view = self.view_mode
+        if view_changed and self._anim_enabled() and self.isVisible():
+            self._play_view_fade()
+
+    def _play_view_fade(self) -> None:
+        """일→주→월 등 보기 전환 시 새 뷰 영역을 0→1 로 부드럽게 페이드 인(#13)."""
+        eff = QGraphicsOpacityEffect(self._view_holder)
+        self._view_holder.setGraphicsEffect(eff)
+        anim = QPropertyAnimation(eff, b"opacity", self)
+        anim.setDuration(180)
+        anim.setStartValue(0.0)
+        anim.setEndValue(1.0)
+        anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        anim.finished.connect(lambda: self._view_holder.setGraphicsEffect(None))
+        self._view_anim = anim  # GC 방지용 참조 유지
+        anim.start()
+
+    def _render_body(self) -> None:
         while self._view_layout.count():
             w = self._view_layout.takeAt(0).widget()
             if w:
                 w.deleteLater()
 
+        # parent 를 view_holder 로 지정해 '레이아웃 추가 전 잠깐 최상위 창이 되는' 깜빡임 방지
+        holder = self._view_holder
         if self.view_mode == "day":
-            view = DayView(self.selected_iso, self._service)
+            view = DayView(self.selected_iso, self._service, self._timer, self._settings,
+                           self._events, holder)
         elif self.view_mode == "week":
-            view = WeekView(self.selected_iso, self._service, self.select_date)
+            view = WeekView(self.selected_iso, self._service, self.select_date,
+                            self.open_day, self._timer, self._settings, self._events, holder)
         else:
-            view = MonthView(self.selected_iso, self._service, self.select_date, self.open_day)
+            view = MonthView(self.selected_iso, self._service, self.select_date,
+                             self.open_day, holder)
         self._view_layout.addWidget(view)
 
         self._title.setText(self._title_text())
+        # 오늘이면 제목을 강조색으로
+        is_today = self.selected_iso == date.today().isoformat()
+        self._title.setProperty("today", "true" if is_today else "false")
+        self._title.style().unpolish(self._title)
+        self._title.style().polish(self._title)
         is_week = self.view_mode == "week"
         self._prev_week.setVisible(is_week)
         self._next_week.setVisible(is_week)
-        self.setFixedWidth(_WIDTH[self.view_mode])
+        is_day = self.view_mode == "day"
+        self._prev_day.setVisible(is_day)
+        self._next_day.setVisible(is_day)
+        # 주/월간은 항상, 일간은 오늘이 아닐 때만 '오늘로 이동' 노출(#1)
+        self._today_btn.setVisible(
+            self.view_mode in ("week", "month")
+            or (self.view_mode == "day" and not is_today)
+        )
+        # 콘텐츠 기준 크기를 '최소'로 두고, 그 이상은 사용자가 우하단 그립으로 키운다.
+        self._sizing = True
+        self.setMaximumSize(16_777_215, 16_777_215)  # 이전 고정 해제
+        self.setMinimumSize(0, 0)
+        self.setMinimumWidth(_WIDTH[self.view_mode])
         self.adjustSize()
-        self.layout().activate()      # 레이아웃 즉시 확정 시도
+        # 중첩 레이아웃(주/월)의 최소높이가 동기 반영되도록 LayoutRequest 를 즉시 처리.
+        QApplication.sendPostedEvents(None, QEvent.Type.LayoutRequest)
+        self._update_min_height()     # 모드별 floor(과소측정 방지: 최댓값 캐시)
+        self._restore_size()          # 저장된 커스텀 크기가 있으면 복원(최소 이상)
+        self._sizing = False
+        self.layout().activate()
         self._reposition()
-        # 확장으로 높이가 커지는 경우, 레이아웃이 완전히 확정된 다음 한 번 더 재배치
-        # (안 그러면 옛 높이로 계산되어 말풍선이 캐릭터를 덮는 문제)
-        QTimer.singleShot(0, self._reposition)
+        # 레이아웃 완전 확정 후(이벤트 루프 1회) 최소높이 재측정·보정 + 재배치
+        QTimer.singleShot(0, self._finalize_size)
 
     def _title_text(self) -> str:
         d = date.fromisoformat(self.selected_iso)
-        wd = _WD_KR[policies.app_weekday(d)]
         label = {"day": "", "week": "  · 주간", "month": "  · 월간"}[self.view_mode]
-        return f"{d.month}월 {d.day}일 ({wd}){label}"
+        return f"{policies.fmt_md(d)}{label}"
 
     def select_date(self, iso: str) -> None:
         self.selected_iso = iso
         self.render()
 
+    def go_today(self) -> None:
+        """현재 보기 모드를 유지한 채 오늘로 이동(일=오늘, 주=이번 주, 월=이번 달)."""
+        self.selected_iso = date.today().isoformat()
+        self.render()
+
     def _shift_week(self, days: int) -> None:
         """주간 보기에서 선택 날짜를 ±7일 이동(같은 요일 유지)해 전/다음 주로."""
+        d = date.fromisoformat(self.selected_iso) + timedelta(days=days)
+        self.selected_iso = d.isoformat()
+        self.render()
+
+    def _shift_day(self, days: int) -> None:
+        """일간 보기에서 선택 날짜를 ±1일 이동(날짜 우측 ‹ › 버튼)."""
         d = date.fromisoformat(self.selected_iso) + timedelta(days=days)
         self.selected_iso = d.isoformat()
         self.render()
@@ -212,25 +350,164 @@ class BubbleWidget(QWidget):
         if self.isVisible():
             self.render()
 
-    def _set_revert_visible(self, v: bool) -> None:
-        self._revert.setVisible(v)
-
     def _on_overdue_panel_changed(self, on: bool) -> None:
+        """밀린할일 표시 토글(메뉴/✕/escape 공통): 설정 저장 + 배치를 한 곳에서 처리."""
+        self._settings.set(policies.KEY_OVERDUE_PANEL, "1" if on else "0")
         self._show_overdue = on
-        self._position_overdue_panel()
+        self._position_left_column()
 
-    def _on_revert(self) -> None:
-        self._service.undo_remove()
+    def _on_timer_panel_changed(self, on: bool) -> None:
+        """타이머 표시 토글(메뉴/✕/자동열기/할일클릭 공통): 설정 저장 + 배치를 한 곳에서 처리."""
+        self._settings.set(policies.KEY_TIMER_PANEL, "1" if on else "0")
+        self._show_timer = on
+        self._position_left_column()
+
+    def _auto_open_timer_panel(self, tid: int) -> None:
+        """할일 타이머가 닫힌 패널 상태에서 시작되면 타이머 패널을 자동으로 켠다(#B1).
+        일반(상시) 타이머는 패널에서 직접 시작하므로 제외한다.
+        설정 저장·배치는 _on_timer_panel_changed 가 일괄 처리한다."""
+        from services.timer_service import STANDALONE_ID
+
+        if self._timer_panel is None or tid == STANDALONE_ID or self._show_timer:
+            return
+        self._events.timer_panel_changed.emit(True)
+
+    def _on_timer_state(self, *_a) -> None:
+        """타이머 시작/해제/만료 → 할일 행 아이콘 교체 위해 재렌더(보이는 동안만)."""
+        if self.isVisible():
+            self.render()  # render → _reposition → _position_left_column
+
+    def _on_timer_pause(self, *_a) -> None:
+        """정지/재개 → 타이머 패널 높이(완료/초기화 버튼 자리)만 다시 맞춤(뷰 재구성 불필요)."""
+        if self.isVisible():
+            self._position_left_column()
+
+    def _minimize(self) -> None:
+        """– 최소화(헤더 버튼): 캐릭터 클릭과 동일하게 모든 그리드를 숨긴다(설정 유지, #4)."""
+        self.minimize_all()
+
+    def minimize_all(self) -> None:
+        """모든 그리드(말풍선·패널)를 숨긴다 — 캐릭터 클릭/– 최소화 공통 진입점.
+        설정값(체크 상태)은 건드리지 않는다(#4). 말풍선이 떠 있으면 슬라이드 애니메이션,
+        detached 패널만 떠 있으면 즉시 숨긴다. 완료되면 bubble_closed 로 캐릭터를 동기화."""
+        if self.isVisible():
+            self.hide_animated()        # done 에서 hide + bubble_closed
+        else:
+            self.hide_all_panels()      # ✕로 남겨둔 패널만 즉시 숨김
+            self._events.bubble_closed.emit()
+
+    def close_keep_panels(self) -> None:
+        """✕ 닫기(헤더 버튼): 할일 목록 그리드만 끄고(KEY_LIST_SHOW=0) 밀린할일·타이머
+        패널은 캐릭터 상단으로 옮겨 화면에 남긴다. 즉시 처리(애니메이션 없음, #1).
+        남길 패널이 없으면 전체 최소화와 동일(역시 즉시)."""
+        self._settings.set(policies.KEY_LIST_SHOW, "0")
+        self._stop_anim()
+        self._panels_detached = self._show_overdue or self._show_timer
+        if self._panels_detached:
+            self._position_panels_detached()   # 패널을 캐릭터 상단 중앙으로 이동
+        self.hide()                            # 말풍선 즉시 숨김(detached 아니면 hideEvent 가 패널도 숨김)
+        self._events.bubble_closed.emit()
+
+    # ── 슬라이드 인/아웃 애니메이션(말풍선 + 옆 컬럼 패널 함께) ──────
+    # 열기=아래에서 위로 올라오며 등장, 닫기=위에서 아래로 내려가며 사라짐.
+    def _anim_enabled(self) -> bool:
+        return self._settings.get_bool(policies.KEY_BUBBLE_ANIMATION, True)
+
+    def _slide_targets(self) -> list:
+        """현재 보이는(또는 곧 보일) 말풍선 + 옆 컬럼 패널을 (위젯, 최종좌표)로."""
+        out = [(self, self.pos())]
+        if self._overdue_panel.isVisible():
+            out.append((self._overdue_panel, self._overdue_panel.pos()))
+        if self._timer_panel is not None and self._timer_panel.isVisible():
+            out.append((self._timer_panel, self._timer_panel.pos()))
+        return out
+
+    def _stop_anim(self) -> None:
+        if self._anim is not None:
+            self._anim.stop()
+            self._anim = None
+
+    def _build_slide(self, targets: list, dy_from: int, dy_to: int,
+                     curve: QEasingCurve.Type, dur: int) -> QParallelAnimationGroup:
+        """targets: [(위젯, 최종좌표)]. 최종좌표 기준 y+dy_from → y+dy_to 로 이동."""
+        grp = QParallelAnimationGroup(self)
+        for w, final in targets:
+            a = QPropertyAnimation(w, b"pos", grp)
+            a.setDuration(dur)
+            a.setStartValue(QPoint(final.x(), final.y() + dy_from))
+            a.setEndValue(QPoint(final.x(), final.y() + dy_to))
+            a.setEasingCurve(curve)
+            grp.addAnimation(a)
+        return grp
+
+    def _play_open(self) -> None:
+        """아래(+SLIDE)에서 최종 위치로 슬라이드 인 + 짧은 페이드로 등장 보정.
+        _reposition/show 가 패널·말풍선을 '최종 위치'에 먼저 띄우므로, 같은 호출 스택에서
+        (이벤트 루프 복귀 전) opacity 0 으로 덮고 시작 위치로 내려둔다. 그래서 첫 페인트가
+        최종 위치에서 번쩍이며 '위에서 덜컥' 떨어지는 일이 없고, 페이드가 잔여 점프를 가린다."""
+        self._stop_anim()
+        targets = self._slide_targets()
+        for w, final in targets:
+            w.setWindowOpacity(0.0)                     # 최종 위치 첫 페인트를 덮음
+            w.move(final.x(), final.y() + _SLIDE_PX)    # 시작 위치(아래)로
+        grp = QParallelAnimationGroup(self)
+        for w, final in targets:
+            pa = QPropertyAnimation(w, b"pos", grp)
+            pa.setDuration(220)
+            pa.setStartValue(QPoint(final.x(), final.y() + _SLIDE_PX))
+            pa.setEndValue(QPoint(final.x(), final.y()))
+            pa.setEasingCurve(QEasingCurve.Type.OutCubic)
+            grp.addAnimation(pa)
+            oa = QPropertyAnimation(w, b"windowOpacity", grp)
+            oa.setDuration(150)
+            oa.setStartValue(0.0)
+            oa.setEndValue(1.0)
+            oa.setEasingCurve(QEasingCurve.Type.OutCubic)
+            grp.addAnimation(oa)
+        self._anim = grp
+        self._anim.start()
+
+    def hide_animated(self) -> None:
+        """말풍선+패널을 아래로 슬라이드 아웃한 뒤 hide(캐릭터 클릭/– 최소화 경로).
+        애니메이션이 꺼져 있으면 즉시 닫는다. 끝나면 bubble_closed 로 캐릭터를 동기화."""
+        if not self._anim_enabled() or not self.isVisible():
+            self.hide()
+            self._events.bubble_closed.emit()
+            return
+        self._stop_anim()
+        targets = self._slide_targets()
+        self._anim = self._build_slide(
+            targets, 0, _SLIDE_PX, QEasingCurve.Type.InCubic, 160
+        )
+
+        def done() -> None:
+            self.hide()  # hideEvent 가 옆 컬럼 패널도 함께 숨김
+            for w, final in targets:
+                w.move(final)           # 다음 표시를 위해 위치 복원
+                w.setWindowOpacity(1.0)  # 중단된 open 으로 반투명하게 남는 것 방지
+            self._events.bubble_closed.emit()
+
+        self._anim.finished.connect(done)
+        self._anim.start()
 
     # ── 배치 ────────────────────────────────────────────────
     def show_for_character(self, char_geom: QRect, screen_geom: QRect) -> None:
         self._char_geom = char_geom
         self._screen_geom = screen_geom
-        self.render()
-        self.adjustSize()
-        self._reposition()
+        self._panels_detached = False  # 다시 열리면 패널은 말풍선 옆 컬럼으로 복귀
+        self._settings.set(policies.KEY_LIST_SHOW, "1")  # 목록 그리드 ON 상태로 기록
+        self.render()  # 최소/저장 크기까지 여기서 확정(별도 adjustSize 금지: 커스텀 크기 덮어씀)
+        # 위치를 먼저 잡고(이동) show → 첫 표시 시 엉뚱한 위치 깜빡임 방지
+        self.move(self._placement(char_geom, screen_geom))
         self.show()
         self.raise_()
+        # show 뒤에 패널 배치: _position_left_column 은 isVisible 가드가 있어
+        # show 전에 부르면 패널을 숨기고 빠져나간다. 이제 패널들도 표시돼
+        # _play_open 의 _slide_targets 에 잡혀 함께 슬라이드+페이드된다.
+        self._reposition()
+        self._events.bubble_opened.emit()  # 캐릭터 '목록 열림' 이미지 전환(#12)
+        if self._anim_enabled():
+            self._play_open()
 
     def reposition_for_character(self, char_geom: QRect, screen_geom: QRect) -> None:
         """캐릭터 드래그 중 말풍선만 따라 이동(뷰 재구성 없이 위치만)."""
@@ -242,37 +519,223 @@ class BubbleWidget(QWidget):
         if self._char_geom is None or self._screen_geom is None:
             return
         self.move(self._placement(self._char_geom, self._screen_geom))
-        self._position_overdue_panel()
+        self._position_left_column()
 
-    def _position_overdue_panel(self) -> None:
-        """밀린 할일 패널을 설정된 방향(좌/우)에 붙여서 띄운다."""
-        panel = self._overdue_panel
-        if not self._show_overdue or not self.isVisible() or self._screen_geom is None:
-            panel.hide()
-            return
-        panel.setFixedHeight(self.height())
+    # ── 사용자 리사이즈(우하단 그립) + 모드별 크기 기억 ──────────
+    def _saved_size(self, mode: str) -> tuple[int, int]:
+        raw = self._settings.get(policies.KEY_BUBBLE_SIZE_PREFIX + mode, "") or ""
+        if "x" in raw:
+            try:
+                w, h = raw.split("x", 1)
+                return int(w), int(h)
+            except ValueError:
+                pass
+        return 0, 0
+
+    def _restore_size(self) -> None:
+        """저장된 커스텀 크기로 복원(없거나 작으면 최소 크기 유지)."""
+        w, h = self._saved_size(self.view_mode)
+        self.resize(max(w, self.minimumWidth()), max(h, self.minimumHeight()))
+
+    def _update_min_height(self) -> None:
+        """모드별 최소 높이 = 지금까지 측정한 minimumSizeHint 의 최댓값.
+        (QScrollArea 가 콘텐츠 많을 때 동기 측정에서 과소 보고하는 것을 흡수)"""
+        mh = self.minimumSizeHint().height()
+        self._min_h[self.view_mode] = max(self._min_h.get(self.view_mode, 0), mh)
+        self.setMinimumSize(_WIDTH[self.view_mode], self._min_h[self.view_mode])
+
+    def _finalize_size(self) -> None:
+        """이벤트 루프가 한 번 돈 뒤(레이아웃 확정) 최소높이를 다시 측정해 보정."""
+        prev = self._min_h.get(self.view_mode, 0)
+        self._update_min_height()
+        if self._min_h[self.view_mode] > prev:
+            self._sizing = True
+            self._restore_size()
+            self._sizing = False
+        self._reposition()
+
+    def resizeEvent(self, e) -> None:
+        super().resizeEvent(e)
+        if getattr(self, "_grip", None) is not None:
+            self._grip.move(self.width() - self._grip.width() - 3,
+                            self.height() - self._grip.height() - 3)
+            self._grip.raise_()
+        # 사용자가 그립으로 끈 크기만 저장(프로그램적 사이징 중에는 무시)
+        if not getattr(self, "_sizing", False) and self.isVisible():
+            self._settings.set(policies.KEY_BUBBLE_SIZE_PREFIX + self.view_mode,
+                               f"{self.width()}x{self.height()}")
+            self._position_left_column()  # 옆 컬럼 패널 높이도 같이 맞춤
+
+    def _timer_active(self) -> bool:
+        return self._timer is not None and self._timer.is_active()
+
+    def timer_panel_visible(self) -> bool:
+        """타이머 패널이 현재 화면에 떠 있는지(✕로 말풍선만 닫고 패널을 남긴 경우 포함)."""
+        return self._timer_panel is not None and self._timer_panel.isVisible()
+
+    def _column_x(self) -> int:
+        """좌/우 컬럼 패널의 x 좌표(밀린할일·타이머 공통 폭)."""
         side = self._settings.get(policies.KEY_OVERDUE_PANEL_SIDE, "right")
         if side == "left":
-            x = self.x() - panel.width() - _PANEL_GAP
+            return self.x() - self._overdue_panel.width() - _PANEL_GAP
+        return self.x() + self.width() + _PANEL_GAP
+
+    def _position_left_column(self) -> None:
+        """밀린 할일 + 타이머 패널을 같은 컬럼에 위아래로 배치한다.
+        - 밀린할일 ON,  타이머 X  : 밀린할일 전체 높이
+        - 밀린할일 ON,  타이머 O  : 밀린할일(축소) + 타이머
+        - 밀린할일 OFF, 타이머 O  : 타이머 단독
+        - 밀린할일 OFF, 타이머 X  : 둘 다 숨김"""
+        overdue = self._overdue_panel
+        timer = self._timer_panel
+        # 말풍선이 숨겨졌고 ✕로 패널을 남긴 상태(_panels_detached)가 아니면 패널도 숨긴다.
+        # detached 상태에선 말풍선이 hide 돼도 마지막 지오메트리로 패널 자리를 유지한다.
+        if self._screen_geom is None or (not self.isVisible() and not self._panels_detached):
+            overdue.hide()
+            if timer is not None:
+                timer.hide()
+            return
+
+        # ✕로 목록만 닫은 상태: 말풍선 옆이 아니라 캐릭터 상단 중앙으로 패널을 띄운다.
+        if self._panels_detached:
+            self._position_panels_detached()
+            return
+
+        # 타이머 패널 노출은 '상시 표시 설정'으로만 제어(✕ 로 확실히 닫히고, 닫혀도 타이머는 계속 진행 #10).
+        # 도는 타이머는 말풍선을 내릴 때 캐릭터 옆 타이머 풍선으로 보인다.
+        timer_on = self._show_timer and timer is not None
+        x = self._column_x()
+        top = self.y()
+        col_h = self.height()
+
+        if self._show_overdue and timer_on:
+            # 타이머는 상태별 고정 높이(셀 정사각형 유지), 밀린할일이 나머지를 채운다.
+            tb = timer.block_height()
+            overdue_h = col_h - tb - _STACK_GAP
+            overdue.setFixedHeight(overdue_h)
+            overdue.move(x, top)
+            overdue.reload()
+            overdue.show()
+            overdue.raise_()
+            timer.setFixedHeight(tb)
+            timer.move(x, top + overdue_h + _STACK_GAP)
+            timer.reload()
+            timer.show()
+            timer.raise_()
+        elif timer_on:
+            overdue.hide()
+            timer.setFixedHeight(timer.block_height())
+            timer.move(x, top)
+            timer.reload()
+            timer.show()
+            timer.raise_()
+        elif self._show_overdue:
+            if timer is not None:
+                timer.hide()
+            overdue.setFixedHeight(col_h)
+            overdue.move(x, top)
+            overdue.reload()
+            overdue.show()
+            overdue.raise_()
         else:
-            x = self.x() + self.width() + _PANEL_GAP
-        panel.move(x, self.y())
-        panel.reload()
-        panel.show()
-        panel.raise_()
+            overdue.hide()
+            if timer is not None:
+                timer.hide()
+
+    def reposition_detached_panels(self, char_geom: QRect, screen_geom: QRect) -> None:
+        """캐릭터 드래그 중, ✕로 남겨 둔 패널이 캐릭터를 따라 상단 중앙에 머물게 한다."""
+        if not self._panels_detached:
+            return
+        self._char_geom = char_geom
+        self._screen_geom = screen_geom
+        self._position_panels_detached()
+
+    def show_detached_panels(self, char_geom: QRect, screen_geom: QRect) -> None:
+        """할일 목록은 닫힌 채(KEY_LIST_SHOW=0) 밀린할일·타이머 패널만 캐릭터 상단에 띄운다."""
+        self._char_geom = char_geom
+        self._screen_geom = screen_geom
+        self._panels_detached = True
+        self._overdue_panel.reload()
+        if self._timer_panel is not None:
+            self._timer_panel.reload()
+        self._position_panels_detached()
+
+    def hide_all_panels(self) -> None:
+        """떠 있던(detached) 패널을 모두 숨긴다(전체 최소화 경로)."""
+        self._panels_detached = False
+        self._overdue_panel.hide()
+        if self._timer_panel is not None:
+            self._timer_panel.hide()
+
+    def any_panel_visible(self) -> bool:
+        """밀린할일·타이머 패널 중 하나라도 화면에 떠 있는지."""
+        if self._overdue_panel.isVisible():
+            return True
+        return self._timer_panel is not None and self._timer_panel.isVisible()
+
+    def _position_panels_detached(self) -> None:
+        """✕로 목록만 닫았을 때 밀린할일·타이머 패널을 캐릭터 상단 중앙에 세로로 쌓는다.
+        위 공간이 부족하면 캐릭터 아래로 내린다. 컬럼 모드와 달리 말풍선 높이에 묶이지 않는다."""
+        overdue = self._overdue_panel
+        timer = self._timer_panel
+        if self._char_geom is None or self._screen_geom is None:
+            return
+        timer_on = self._show_timer and timer is not None
+
+        # 표시할 패널을 위→아래 순서로(밀린할일 위, 타이머 아래) 모으고 높이를 정한다.
+        parts: list = []
+        if self._show_overdue:
+            overdue.setFixedHeight(_DETACHED_OVERDUE_H)
+            parts.append(overdue)
+        else:
+            overdue.hide()
+        if timer_on:
+            timer.setFixedHeight(timer.block_height())
+            parts.append(timer)
+        elif timer is not None:
+            timer.hide()
+        if not parts:
+            return
+
+        char, scr = self._char_geom, self._screen_geom
+        total_h = sum(p.height() for p in parts) + _STACK_GAP * (len(parts) - 1)
+        x = max(scr.left() + _MARGIN,
+                min(char.center().x() - PANEL_WIDTH // 2, scr.right() - PANEL_WIDTH - _MARGIN))
+        top = char.top() - _GAP - total_h
+        if top < scr.top() + _MARGIN:      # 위 공간 부족 → 캐릭터 아래로
+            top = char.bottom() + _GAP
+        y = top
+        for p in parts:
+            p.move(x, y)
+            p.show()
+            p.raise_()
+            y += p.height() + _STACK_GAP
 
     def hideEvent(self, e) -> None:
-        # 말풍선이 숨겨지면(최소화/토글) 밀린 할일 패널도 함께 숨긴다.
-        if hasattr(self, "_overdue_panel"):
-            self._overdue_panel.hide()
+        # 말풍선이 숨겨지면(최소화/토글) 같은 컬럼 패널들도 함께 숨긴다.
+        # 단, ✕ 닫기(_panels_detached)는 패널을 화면에 남겨 둔다.
+        if not self._panels_detached:
+            if hasattr(self, "_overdue_panel"):
+                self._overdue_panel.hide()
+            if getattr(self, "_timer_panel", None) is not None:
+                self._timer_panel.hide()
         super().hideEvent(e)
 
     def _placement(self, char: QRect, scr: QRect) -> QPoint:
         """캐릭터 위치는 그대로 두고, 캐릭터를 가리지 않는 자리에 말풍선을 둔다.
-        우선순위: 위 → 아래 → 오른쪽 → 왼쪽. 모두 안 되면 화면 안으로 clamp(최후)."""
+        우선순위: 위 → 아래 → 오른쪽 → 왼쪽. 모두 안 되면 화면 안으로 clamp(최후).
+        밀린 할일 패널이 켜져 있으면 그 폭만큼 설정 방향에 공간을 확보해 패널도 화면 안에 둔다."""
         w, h = self.width(), self.height()
-        # 위/아래용 가로 위치(캐릭터 중심 정렬 후 화면 안으로 clamp)
-        hx = max(scr.left() + _MARGIN, min(char.center().x() - w // 2, scr.right() - w - _MARGIN))
+        # 패널(밀린할일 또는 타이머)이 켜져 있으면 설정 방향에 패널 폭만큼 여유 확보
+        need_col = self._show_overdue or self._show_timer
+        pw = (self._overdue_panel.width() + _PANEL_GAP) if need_col else 0
+        side = self._settings.get(policies.KEY_OVERDUE_PANEL_SIDE, "right")
+        right_reserve = pw if side == "right" else 0
+        left_reserve = pw if side == "left" else 0
+
+        # 위/아래용 가로 위치(캐릭터 중심 정렬 후 화면 안으로 clamp, 패널 공간 반영)
+        hx = max(scr.left() + _MARGIN + left_reserve,
+                 min(char.center().x() - w // 2, scr.right() - w - _MARGIN - right_reserve))
         # 좌/우용 세로 위치(캐릭터 중심 정렬 후 clamp)
         vy = max(scr.top() + _MARGIN, min(char.center().y() - h // 2, scr.bottom() - h - _MARGIN))
 
@@ -285,9 +748,9 @@ class BubbleWidget(QWidget):
             return QPoint(hx, above_y)
         if below_y + h <= scr.bottom() - _MARGIN:
             return QPoint(hx, below_y)
-        if right_x + w <= scr.right() - _MARGIN:
+        if right_x + w + right_reserve <= scr.right() - _MARGIN:
             return QPoint(right_x, vy)
-        if left_x >= scr.left() + _MARGIN:
+        if left_x - left_reserve >= scr.left() + _MARGIN:
             return QPoint(left_x, vy)
         # 최후: 화면 안으로 clamp (아주 작은 화면에서만 캐릭터와 겹칠 수 있음)
         y = max(scr.top() + _MARGIN, min(above_y, scr.bottom() - h - _MARGIN))
