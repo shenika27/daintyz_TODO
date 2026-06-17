@@ -47,7 +47,7 @@ _FALLBACK_BASE = {
 }
 _REACTION_MS = 3000       # 완료(done) 리액션 표시 시간
 _TIMER_DONE_MS = 3000     # 타이머 만료(timer_done) 리액션 표시 시간
-_GRID_REACT_MS = 3000     # 그리드 열기(open)/닫기(closed) 리액션 표시 시간
+_GRID_REACT_MS = 2000     # 그리드 열기(open)/닫기(closed) 리액션 표시 시간
 _FALLBACK_EXTS = (".png", ".gif")  # 우선순위 순(둘 다 있으면 png)
 
 # 상황 → 설정 키. 'default' 는 기본 이미지, 나머지는 없으면 default 로 폴백.
@@ -101,7 +101,6 @@ class CharacterWidget(QWidget):
         self._press_frame: QPoint | None = None
         self._moved = False
         self._undo_available = False   # 되돌리기(삭제 취소) 가능 여부 — 우클릭 메뉴에서 사용
-        self._click_closing = False    # 캐릭터 클릭으로 닫는 중이면 True(bubble_closed 에서 closed 리액션)
 
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
@@ -317,14 +316,11 @@ class CharacterWidget(QWidget):
         self._start_reaction("open", _GRID_REACT_MS)
 
     def _on_bubble_closed(self) -> None:
-        """말풍선(그리드)이 닫혔을 때: 타이머 풍선 동기화 + 이미지 처리.
-        캐릭터 클릭으로 닫은 경우에만 closed 리액션(3초)을 표시하고, 그 외(✕·– 등)는 즉시 복귀."""
+        """말풍선(그리드)이 닫혔을 때: 타이머 풍선 동기화 + 상황 갱신.
+        캐릭터 클릭 닫기는 이미 _toggle_bubble 에서 closed 리액션이 시작됐으므로
+        _refresh_situation 은 _reacting=True 중에는 자동으로 무시된다."""
         self._sync_timer_bubble()
-        if self._click_closing:
-            self._click_closing = False
-            self._start_reaction("closed", _GRID_REACT_MS)
-        else:
-            self._refresh_situation()
+        self._refresh_situation()
 
     def _on_timer_bubble_clicked(self) -> None:
         """타이머 풍선 클릭: (최소화 상태면 복원하고) 말풍선 열기."""
@@ -453,7 +449,7 @@ class CharacterWidget(QWidget):
         - 모두 숨겨져 있으면 '켜진' 그리드만 다시 표시(꺼진 그리드는 안 나옴)
         - 모든 그리드가 꺼져 있으면 전부 켠다(escape)."""
         if self._bubble.isVisible() or self._bubble.any_panel_visible():
-            self._click_closing = True    # bubble_closed 에서 closed 리액션 시작
+            self._start_reaction("closed", _GRID_REACT_MS)  # 클릭 즉시 closed 이미지
             self._bubble.minimize_all()
         else:
             self._restore_grids()
