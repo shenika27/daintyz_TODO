@@ -306,11 +306,13 @@ class SettingsDialog(QDialog):
         f = QApplication.instance().font()
         f.setFamily(font.family())
         QApplication.instance().setFont(f)
+        self._events.theme_changed.emit()
 
     def _reset_font(self) -> None:
         self._settings.set(policies.KEY_FONT, "")
         QApplication.instance().setFont(QFont())
         self._font_combo.setCurrentFont(QApplication.instance().font())
+        self._events.theme_changed.emit()
 
     def _change_theme(self) -> None:
         self._settings.set(policies.KEY_THEME, self._theme.currentData())

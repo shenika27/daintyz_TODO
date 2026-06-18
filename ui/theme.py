@@ -134,6 +134,8 @@ def arrow_icon_path(direction: str, color: str) -> str:
 def qss(mode: str | None) -> str:
     c = palette(mode)
     check_url = _check_icon_path()
+    arrow_up = arrow_icon_path("up", c["sub"])
+    arrow_down = arrow_icon_path("down", c["sub"])
     return f"""
 #bubbleRoot {{
     background: {c['bg']};
@@ -172,6 +174,29 @@ def qss(mode: str | None) -> str:
 }}
 #bubbleRoot QToolButton:hover {{ background: {c['surface']}; }}
 #bubbleRoot QToolButton#xBtn {{ color: {c['red']}; }}
+#bubbleRoot QToolButton#headerBtn {{ padding: 4px 3px; }}
+
+#bubbleRoot QSpinBox#dateSpin {{
+    background: {c['surface']}; color: {c['text']};
+    border: 1px solid {c['border_strong']}; border-radius: 6px;
+    padding: 1px 2px; min-width: 30px;
+    selection-background-color: {c['accent']};
+}}
+#bubbleRoot QSpinBox#dateSpin:focus {{ border: 1px solid {c['accent']}; }}
+#bubbleRoot QSpinBox#dateSpin::up-button {{
+    subcontrol-origin: border; subcontrol-position: top right;
+    width: 14px; border: none; background: transparent;
+}}
+#bubbleRoot QSpinBox#dateSpin::down-button {{
+    subcontrol-origin: border; subcontrol-position: bottom right;
+    width: 14px; border: none; background: transparent;
+}}
+#bubbleRoot QSpinBox#dateSpin::up-arrow {{
+    image: url({arrow_up}); width: 8px; height: 8px;
+}}
+#bubbleRoot QSpinBox#dateSpin::down-arrow {{
+    image: url({arrow_down}); width: 8px; height: 8px;
+}}
 
 #bubbleRoot QLineEdit {{
     border: none; background: {c['surface']}; color: {c['text']};
