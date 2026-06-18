@@ -518,9 +518,7 @@ class CharacterWidget(QWidget):
             s.set_bool(policies.KEY_LIST_SHOW, True)
             s.set_bool(policies.KEY_OVERDUE_PANEL, True)
             s.set_bool(policies.KEY_TIMER_PANEL, True)
-        list_on = s.get_bool(policies.KEY_LIST_SHOW, False)
-        overdue_on = s.get_bool(policies.KEY_OVERDUE_PANEL, True)
-        timer_on = s.get_bool(policies.KEY_TIMER_PANEL, False)
+        list_on, overdue_on, timer_on = self._bubble.grid_intent()
         if not (list_on or overdue_on or timer_on):
             return  # 모두 꺼진 채로 종료했으면 최소화 상태 유지
         scr = self.available_geometry()
@@ -534,10 +532,7 @@ class CharacterWidget(QWidget):
     def _restore_grids(self) -> None:
         """캐릭터 클릭으로 그리드 표시: 설정상 '켜짐'인 그리드만 보여준다(#2).
         모두 꺼져 있으면 전부 켠다(escape, #3). 설정 저장은 BubbleWidget 이 처리."""
-        s = self._settings
-        list_on = s.get_bool(policies.KEY_LIST_SHOW, True)
-        overdue_on = s.get_bool(policies.KEY_OVERDUE_PANEL, True)
-        timer_on = s.get_bool(policies.KEY_TIMER_PANEL, False)
+        list_on, overdue_on, timer_on = self._bubble.grid_intent()
         if not (list_on or overdue_on or timer_on):
             self._events.overdue_panel_changed.emit(True)  # 핸들러가 설정 저장
             self._events.timer_panel_changed.emit(True)

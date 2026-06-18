@@ -858,6 +858,16 @@ class BubbleWidget(QWidget):
         캐릭터 클릭 토글·메뉴·'할일 n개' 풍선이 공통으로 쓰는 단일 술어."""
         return self.isVisible() or self.any_panel_visible()
 
+    def grid_intent(self) -> tuple[bool, bool, bool]:
+        """설정에 저장된 각 그리드(목록·밀린할일·타이머)의 표시 의도(on/off).
+        캐릭터 클릭 복원(_restore_grids)·시작 복원(restore_on_startup) 공통 진실 소스."""
+        s = self._settings
+        return (
+            s.get_bool(policies.KEY_LIST_SHOW, True),
+            s.get_bool(policies.KEY_OVERDUE_PANEL, True),
+            s.get_bool(policies.KEY_TIMER_PANEL, False),
+        )
+
     def _position_panels_detached(self) -> None:
         """✕로 목록만 닫았을 때 밀린할일·타이머 패널을 캐릭터 상단 중앙에 세로로 쌓는다.
         위 공간이 부족하면 캐릭터 아래로 내린다. 컬럼 모드와 달리 말풍선 높이에 묶이지 않는다."""
