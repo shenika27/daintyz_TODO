@@ -97,6 +97,7 @@ class CharacterWidget(QWidget):
         self._working = False         # 타이머 실행 중(정지 포함)
         self._paused = False          # 타이머 정지(일시정지) 중
         self._reacting = False        # 완료/타이머완료 리액션 표시 중
+        self._skip_open_reaction = False  # 우클릭 메뉴 등 리액션 없이 그리드 여는 경우
         self._react_sit = ""          # 리액션 상황('done'|'timer_done')
         self._press_global: QPoint | None = None
         self._press_frame: QPoint | None = None
@@ -320,9 +321,10 @@ class CharacterWidget(QWidget):
 
     def _on_bubble_opened(self) -> None:
         """말풍선(그리드)이 열렸을 때: open 이미지를 3초 표시 후 기본 이미지 복귀.
-        단, 타이머 진행 중(정지 포함)이면 work/pause 이미지를 유지한다."""
-        if not self._working:
+        타이머 진행 중(정지 포함)이거나 우클릭 메뉴 경유 시엔 현재 이미지를 유지한다."""
+        if not self._working and not self._skip_open_reaction:
             self._start_reaction("open", _GRID_REACT_MS)
+        self._skip_open_reaction = False
         self._sync_todo_count_bubble()  # 그리드 열림 → '할일 n개' 풍선 숨김
 
     def _on_bubble_closed(self) -> None:
@@ -607,6 +609,7 @@ class CharacterWidget(QWidget):
             return
         scr = self._screen_for(self.frameGeometry().center()).availableGeometry()
         if on:
+            self._skip_open_reaction = True  # 우클릭 메뉴 → open 리액션 억제
             self._bubble.show_for_character(self.frameGeometry(), scr)
             self._sync_timer_bubble()
         else:
