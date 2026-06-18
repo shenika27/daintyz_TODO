@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 
 from domain import policies
 from domain.models import RecurringRule
@@ -17,8 +17,8 @@ log = logging.getLogger(__name__)
 
 
 class RecurringService:
-    def __init__(self, db, recurring_repo, settings_repo):
-        self.conn = db.conn
+    def __init__(self, todo_repo, recurring_repo, settings_repo):
+        self._todos = todo_repo
         self._rules = recurring_repo
         self._settings = settings_repo
 
@@ -33,9 +33,8 @@ class RecurringService:
         while cur <= end:
             for rule in rules:
                 if self._applies(rule, cur):
-                    self._materialize(rule, cur)
+                    self._todos.materialize_recurring(rule, cur.isoformat())
             cur += timedelta(days=1)
-        self.conn.commit()
 
     # ── 내부 ────────────────────────────────────────────────
     def _applies(self, rule: RecurringRule, day: date) -> bool:
@@ -54,25 +53,3 @@ class RecurringService:
             target = policies.monthly_target_day(day.year, day.month, rule.day_of_month or 1)
             return day.day == target
         return False
-
-    def _materialize(self, rule: RecurringRule, day: date) -> None:
-        iso = day.isoformat()
-        exists = self.conn.execute(
-            "SELECT 1 FROM todos WHERE recurring_id = ? AND due_date = ? LIMIT 1",
-            (rule.id, iso),
-        ).fetchone()
-        if exists:
-            return
-
-        remind_at = f"{iso} {rule.remind_time}" if rule.remind_time else None
-        next_order = self.conn.execute(
-            "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM todos WHERE due_date = ?",
-            (iso,),
-        ).fetchone()[0]
-        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        self.conn.execute(
-            "INSERT OR IGNORE INTO todos "
-            "(content, due_date, sort_order, remind_at, recurring_id, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (rule.content, iso, next_order, remind_at, rule.id, now, now),
-        )

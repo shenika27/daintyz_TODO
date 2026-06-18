@@ -57,7 +57,7 @@ class AppController:
 
         # 서비스 계층
         self.recurring_service = RecurringService(
-            self.db, self.recurring_repo, self.settings_repo
+            self.todo_repo, self.recurring_repo, self.settings_repo
         )
         self.todo_service = TodoService(
             self.todo_repo, self.recurring_service, self.events

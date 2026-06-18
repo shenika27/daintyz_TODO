@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from domain.models import Todo
+from domain.models import RecurringRule, Todo
 
 
 def _now() -> str:
@@ -145,6 +145,24 @@ class TodoRepository:
         """해당 반복 규칙으로 생성된 모든 할일을 삭제(완료·숨김 포함)."""
         self.conn.execute("DELETE FROM todos WHERE recurring_id = ?", (rule_id,))
         self.conn.commit()
+
+    def materialize_recurring(self, rule: RecurringRule, iso: str) -> bool:
+        """반복 규칙 1회차를 todos 로 기록. 이미 존재하면(숨김 포함) 건너뛰고 False."""
+        exists = self.conn.execute(
+            "SELECT 1 FROM todos WHERE recurring_id = ? AND due_date = ? LIMIT 1",
+            (rule.id, iso),
+        ).fetchone()
+        if exists:
+            return False
+        remind_at = f"{iso} {rule.remind_time}" if rule.remind_time else None
+        self.conn.execute(
+            "INSERT OR IGNORE INTO todos "
+            "(content, due_date, sort_order, remind_at, recurring_id, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (rule.content, iso, self._next_order(iso), remind_at, rule.id, _now(), _now()),
+        )
+        self.conn.commit()
+        return True
 
     def insert_raw(self, todo: Todo) -> int:
         """undo(되돌리기)용: 삭제했던 일반 할일을 원래 값으로 복원."""
