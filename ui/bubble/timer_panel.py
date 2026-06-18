@@ -20,10 +20,8 @@ from PyQt6.QtWidgets import (
 )
 
 from domain import policies
-from ui import theme
-from ui.bubble.overdue_panel import PANEL_WIDTH
+from ui.bubble.panel_base import PANEL_WIDTH, _PanelBase
 from ui.bubble.todo_item import _clock_pixmap
-from ui.qt_helpers import make_overlay_window
 
 CELL_HEIGHT = 108  # 정사각형 셀: 패널 폭 140 − 외부/루트 여백(8+8)*2 = 셀 너비 108
 BLOCK_BASE = 172    # 패널 고정 높이(평상시): 헤더 + 정사각형 셀
@@ -252,60 +250,27 @@ class _IdleControl(QFrame):
         self._time.setText(policies.fmt_hms(self._secs))
 
 
-class TimerPanel(QWidget):
+class TimerPanel(_PanelBase):
     def __init__(self, service, events, settings_repo, timer_service, parent=None):
-        super().__init__(parent)
+        super().__init__(settings_repo, events, "타이머", parent)
         self._service = service
-        self._events = events
-        self._settings = settings_repo
         self._timer = timer_service
 
-        make_overlay_window(self)
-        self.setFixedWidth(PANEL_WIDTH)
-
-        self._root = QFrame(self)
-        self._root.setObjectName("bubbleRoot")
-        outer = QVBoxLayout(self)
-        outer.setContentsMargins(8, 8, 8, 8)  # 그림자/여백(말풍선과 동일)
-        outer.addWidget(self._root)
-
-        vbox = QVBoxLayout(self._root)
-        vbox.setContentsMargins(8, 8, 8, 8)
-        vbox.setSpacing(6)
-
-        head = QHBoxLayout()
-        head.setSpacing(2)
-        title = QLabel("타이머")
-        title.setObjectName("overdueTitle")
-        f = title.font()
-        f.setBold(True)
-        title.setFont(f)
-        head.addWidget(title, 1)
-
         # 초기화(↺): 진행 중 일반 타이머를 직전 설정 시간으로(#9). 일반 타이머일 때만 노출.
-        self._reset_btn = QToolButton()
-        self._reset_btn.setText("↺")
-        self._reset_btn.setToolTip("직전 설정 시간으로 초기화")
-        self._reset_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._reset_btn.clicked.connect(self._timer.reset_standalone)
+        self._reset_btn = self._add_header_button(
+            "↺", "직전 설정 시간으로 초기화", self._timer.reset_standalone
+        )
         self._reset_btn.setVisible(False)
-        head.addWidget(self._reset_btn)
 
-        close = QToolButton()
-        close.setText("✕")
-        close.setToolTip("닫기")
-        close.setCursor(Qt.CursorShape.PointingHandCursor)
-        close.clicked.connect(self._close_panel)
-        head.addWidget(close)
-        vbox.addLayout(head)
+        self._add_header_button("✕", "닫기", self._close_panel)
 
         # 활성 타이머용 셀 + 비활성 시 직접 설정 idle 컨트롤(둘 중 하나만 표시)
         self._cell = _TimerCell(self._timer.toggle_pause)
         self._cell.setFixedHeight(CELL_HEIGHT)
-        vbox.addWidget(self._cell)
+        self._vbox.addWidget(self._cell)
         self._idle = _IdleControl(self._start_standalone, self._settings)
         self._idle.setFixedHeight(CELL_HEIGHT)
-        vbox.addWidget(self._idle)
+        self._vbox.addWidget(self._idle)
 
         # 할일 타이머 정지(일시정지) 중 하단 버튼 2개: 완료 / 초기화(#8)
         self._paused_actions = QWidget()
@@ -327,7 +292,7 @@ class TimerPanel(QWidget):
         pa.addWidget(self._done_btn)
         pa.addWidget(self._reset_todo_btn)
         self._paused_actions.setVisible(False)
-        vbox.addWidget(self._paused_actions)
+        self._vbox.addWidget(self._paused_actions)
 
         self._events.timer_tick.connect(self._on_tick)
         self._events.timer_started.connect(lambda _id: self._sync_view())
@@ -335,13 +300,8 @@ class TimerPanel(QWidget):
         self._events.timer_finished.connect(lambda _id: self._sync_view())
         self._events.timer_paused.connect(lambda _id: self._sync_view())
         self._events.timer_resumed.connect(lambda _id: self._sync_view())
-        self._events.theme_changed.connect(self.apply_theme)
         self.apply_theme()
         self._sync_view()
-
-    def apply_theme(self) -> None:
-        mode = self._settings.get(policies.KEY_THEME, "system")
-        self.setStyleSheet(theme.qss(mode))
 
     def block_height(self) -> int:
         """현재 상태에 맞는 패널 고정 높이(평상시 축소, 할일 타이머 정지 시 버튼 자리 확보)."""

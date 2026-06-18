@@ -11,20 +11,16 @@ from datetime import date
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
-    QFrame,
-    QHBoxLayout,
     QLabel,
     QScrollArea,
-    QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
 from domain import policies
-from ui import theme
-from ui.qt_helpers import make_overlay_window
+from ui.bubble.panel_base import PANEL_WIDTH, _PanelBase
 
-PANEL_WIDTH = 140  # 밀린할일·타이머 공통 패널 폭(타이머 셀을 정사각형에 가깝게)
+__all__ = ["PANEL_WIDTH", "OverduePanel"]
 
 
 class _OverdueRow(QLabel):
@@ -40,58 +36,23 @@ class _OverdueRow(QLabel):
         self._open_day_cb(self.iso)
 
 
-class OverduePanel(QWidget):
+class OverduePanel(_PanelBase):
     def __init__(self, service, events, settings_repo, open_day_cb, parent=None):
-        super().__init__(parent)
+        super().__init__(settings_repo, events, "밀린 할일", parent)
         self._service = service
-        self._events = events
-        self._settings = settings_repo
         self._open_day_cb = open_day_cb
 
-        make_overlay_window(self)
-        self.setFixedWidth(PANEL_WIDTH)
-
-        self._root = QFrame(self)
-        self._root.setObjectName("bubbleRoot")
-        outer = QVBoxLayout(self)
-        outer.setContentsMargins(8, 8, 8, 8)  # 그림자/여백(말풍선과 동일)
-        outer.addWidget(self._root)
-
-        vbox = QVBoxLayout(self._root)
-        vbox.setContentsMargins(8, 8, 8, 8)
-        vbox.setSpacing(6)
-
-        head = QHBoxLayout()
-        head.setSpacing(2)
-        title = QLabel("밀린 할일")
-        title.setObjectName("overdueTitle")
-        f = title.font()
-        f.setBold(True)
-        title.setFont(f)
-        head.addWidget(title, 1)
-
-        close = QToolButton()
-        close.setText("✕")  # ✕
-        close.setToolTip("닫기")
-        close.setCursor(Qt.CursorShape.PointingHandCursor)
-        close.clicked.connect(self._close_panel)
-        head.addWidget(close)
-        vbox.addLayout(head)
+        self._add_header_button("✕", "닫기", self._close_panel)
 
         self._scroll = QScrollArea()
         self._scroll.setWidgetResizable(True)
         self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        vbox.addWidget(self._scroll, 1)
+        self._vbox.addWidget(self._scroll, 1)
 
         self._events.todos_changed.connect(self._on_data)
-        self._events.theme_changed.connect(self.apply_theme)
         self.apply_theme()
         self.reload()
-
-    def apply_theme(self) -> None:
-        mode = self._settings.get(policies.KEY_THEME, "system")
-        self.setStyleSheet(theme.qss(mode))
 
     def _on_data(self, _iso: str) -> None:
         if self.isVisible():
