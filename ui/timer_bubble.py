@@ -19,15 +19,6 @@ from ui import theme
 from ui.floating_bubble import W, FloatingBubble
 
 
-def _fmt(seconds: int) -> str:
-    seconds = max(0, int(seconds))
-    h, rem = divmod(seconds, 3600)
-    m, s = divmod(rem, 60)
-    if h:
-        return f"{h}:{m:02d}:{s:02d}"
-    return f"{m:02d}:{s:02d}"
-
-
 class TimerBubble(FloatingBubble):
     clicked = pyqtSignal()
 
@@ -78,11 +69,11 @@ class TimerBubble(FloatingBubble):
     def set_content(self, content: str, remaining: int) -> None:
         fm = QFontMetrics(self._name.font())
         self._name.setText(fm.elidedText(content, Qt.TextElideMode.ElideRight, W - 28))
-        self._time.setText(_fmt(remaining))
+        self._time.setText(policies.fmt_hms(remaining))
 
     def _on_tick(self, _todo_id: int, remaining: int) -> None:
         if self.isVisible():
-            self._time.setText(_fmt(remaining))
+            self._time.setText(policies.fmt_hms(remaining))
 
     # ── 드래그 가능 여부 ────────────────────────────────────
     def set_draggable(self, on: bool) -> None:

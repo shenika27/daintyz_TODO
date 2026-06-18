@@ -14,6 +14,8 @@ from dataclasses import dataclass
 
 from PyQt6.QtCore import QObject, QTimer
 
+from domain import policies
+
 
 @dataclass
 class TimerSnapshot:
@@ -26,7 +28,6 @@ class TimerSnapshot:
 
 # 할일 없는 일반 타이머의 시그널 id(시그널은 int 만 받으므로 센티넬 사용)
 STANDALONE_ID = -1
-_DEFAULT_STANDALONE_SECS = 25 * 60  # 일반 타이머 기본 시간(25분)
 
 
 class TimerService(QObject):
@@ -40,7 +41,7 @@ class TimerService(QObject):
         self._remaining: int = 0
         self._paused: bool = False
         self._auto_complete: bool = False    # 만료 시 할일 자동 완료 여부
-        self._last_standalone_secs: int = _DEFAULT_STANDALONE_SECS  # #9 초기화용
+        self._last_standalone_secs: int = policies.DEFAULT_STANDALONE_SECONDS  # #9 초기화용
 
         self._tick = QTimer(self)
         self._tick.setInterval(1000)

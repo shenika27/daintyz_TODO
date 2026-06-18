@@ -23,6 +23,7 @@ from domain import policies
 from ui import theme
 from ui.bubble.overdue_panel import PANEL_WIDTH
 from ui.bubble.todo_item import _clock_pixmap
+from ui.qt_helpers import make_overlay_window
 
 CELL_HEIGHT = 108  # 정사각형 셀: 패널 폭 140 − 외부/루트 여백(8+8)*2 = 셀 너비 108
 BLOCK_BASE = 172    # 패널 고정 높이(평상시): 헤더 + 정사각형 셀
@@ -30,15 +31,6 @@ BLOCK_PAUSED = 210  # 할일 타이머 정지 시: + 셀↔버튼 공백 + 완�
 _PAUSE_COLOR = "#7F77DD"  # 정지(⏸) 강조색(보라) — 호버 안내용
 _PAUSED_RED = "#D85A30"   # 정지 '상태' 표시용 붉은 ‖ (#3)
 _RESUME_COLOR = "#2E9E5B"  # 재개(▶) 강조색(초록)
-
-
-def _fmt(seconds: int) -> str:
-    seconds = max(0, int(seconds))
-    h, rem = divmod(seconds, 3600)
-    m, s = divmod(rem, 60)
-    if h:
-        return f"{h}:{m:02d}:{s:02d}"
-    return f"{m:02d}:{s:02d}"
 
 
 def _pause_pixmap(size: int, color: str) -> QPixmap:
@@ -123,7 +115,7 @@ class _TimerCell(QFrame):
         lay.addWidget(self._name)
 
     def set_time(self, seconds: int) -> None:
-        self._time.setText(_fmt(seconds))
+        self._time.setText(policies.fmt_hms(seconds))
 
     def set_name(self, content: str) -> None:
         self._content = content
@@ -189,7 +181,7 @@ class _IdleControl(QFrame):
         super().__init__(parent)
         self._on_start = on_start
         self._settings = settings_repo
-        self._secs = 25 * 60
+        self._secs = policies.DEFAULT_STANDALONE_SECONDS
         self.setObjectName("timerCell")
 
         lay = QVBoxLayout(self)
@@ -207,7 +199,7 @@ class _IdleControl(QFrame):
         self._play.clicked.connect(lambda: self._on_start(self._secs))
         lay.addWidget(self._play, alignment=Qt.AlignmentFlag.AlignHCenter)
 
-        self._time = QLabel(_fmt(self._secs))
+        self._time = QLabel(policies.fmt_hms(self._secs))
         self._time.setObjectName("timerTime")
         self._time.setAlignment(Qt.AlignmentFlag.AlignHCenter)
         f = self._time.font()
@@ -252,12 +244,12 @@ class _IdleControl(QFrame):
             step = self._SUB_MINUTE_STEP if self._secs < 60 else self._configured_step()
             new = self._secs + step
         self._secs = max(self._MIN, min(self._MAX, new))
-        self._time.setText(_fmt(self._secs))
+        self._time.setText(policies.fmt_hms(self._secs))
 
     def set_seconds(self, secs: int) -> None:
         """idle 진입 시 기본값(직전 설정 시간)으로 맞춘다."""
         self._secs = max(self._MIN, min(self._MAX, int(secs)))
-        self._time.setText(_fmt(self._secs))
+        self._time.setText(policies.fmt_hms(self._secs))
 
 
 class TimerPanel(QWidget):
@@ -268,12 +260,7 @@ class TimerPanel(QWidget):
         self._settings = settings_repo
         self._timer = timer_service
 
-        self.setWindowFlags(
-            Qt.WindowType.FramelessWindowHint
-            | Qt.WindowType.Tool
-            | Qt.WindowType.WindowStaysOnTopHint
-        )
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        make_overlay_window(self)
         self.setFixedWidth(PANEL_WIDTH)
 
         self._root = QFrame(self)

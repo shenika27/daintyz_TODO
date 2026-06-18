@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import (
 
 from domain import policies
 from ui import theme
+from ui.qt_helpers import make_overlay_window
 
 _DEFAULT_MIN = 25  # 기본 25분
 
@@ -42,12 +43,7 @@ class TimerSetupDialog(QDialog):
         self._anim: QPropertyAnimation | None = None
         self._shown_once = False
 
-        self.setWindowFlags(
-            Qt.WindowType.FramelessWindowHint
-            | Qt.WindowType.Dialog
-            | Qt.WindowType.WindowStaysOnTopHint
-        )
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        make_overlay_window(self, dialog=True)
         self.setModal(True)
 
         self._root = QFrame(self)
@@ -159,9 +155,7 @@ class TimerSetupDialog(QDialog):
         self.result_seconds = total
         self.auto_complete = self._auto_cb.isChecked()
         if self._settings is not None:  # 마지막 선택 기억
-            self._settings.set(
-                policies.KEY_TIMER_AUTO_COMPLETE, "1" if self.auto_complete else "0"
-            )
+            self._settings.set_bool(policies.KEY_TIMER_AUTO_COMPLETE, self.auto_complete)
         self.accept()
 
     # ── 페이드 인/아웃 애니메이션(설정으로 on/off) ─────────────

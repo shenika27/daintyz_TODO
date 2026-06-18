@@ -36,7 +36,6 @@ from core import feature_flags
 from domain import policies
 
 log = logging.getLogger(__name__)
-_WD = ["일", "월", "화", "수", "목", "금", "토"]
 
 
 def _app_version() -> str:
@@ -197,7 +196,7 @@ class SettingsDialog(QDialog):
             self._settings.get_bool(policies.KEY_TIMER_TRAY_SHOW, True)
         )
         self._timer_tray_cb.toggled.connect(
-            lambda on: self._settings.set(policies.KEY_TIMER_TRAY_SHOW, "1" if on else "0")
+            lambda on: self._settings.set_bool(policies.KEY_TIMER_TRAY_SHOW, on)
         )
         form.addRow("", self._timer_tray_cb)
 
@@ -215,7 +214,7 @@ class SettingsDialog(QDialog):
             self._settings.get_bool(policies.KEY_BUBBLE_ANIMATION, True)
         )
         self._anim_cb.toggled.connect(
-            lambda on: self._settings.set(policies.KEY_BUBBLE_ANIMATION, "1" if on else "0")
+            lambda on: self._settings.set_bool(policies.KEY_BUBBLE_ANIMATION, on)
         )
         form.addRow("", self._anim_cb)
 
@@ -322,7 +321,7 @@ class SettingsDialog(QDialog):
         self._events.character_scale_changed.emit()
 
     def _toggle_todo_bubble(self, on: bool) -> None:
-        self._settings.set(policies.KEY_TODO_COUNT_BUBBLE, "1" if on else "0")
+        self._settings.set_bool(policies.KEY_TODO_COUNT_BUBBLE, on)
         self._events.todo_count_bubble_changed.emit(on)
 
     # ── 단축키 탭 ───────────────────────────────────────────
@@ -381,7 +380,7 @@ class SettingsDialog(QDialog):
 
     def _toggle_autostart(self, on: bool) -> None:
         self._autostart.set_enabled(on)
-        self._settings.set(policies.KEY_AUTOSTART, "1" if on else "0")
+        self._settings.set_bool(policies.KEY_AUTOSTART, on)
 
     def _export(self) -> None:
         path, _ = QFileDialog.getSaveFileName(
@@ -435,7 +434,7 @@ class SettingsDialog(QDialog):
 
         wk_row = QHBoxLayout()
         self._wd_checks: list[QCheckBox] = []
-        for name in _WD:
+        for name in policies.WEEKDAYS_KR:
             cb = QCheckBox(name)
             self._wd_checks.append(cb)
             wk_row.addWidget(cb)

@@ -21,7 +21,6 @@ from PyQt6.QtWidgets import (
 from domain import policies
 from ui.bubble.todo_item import MIME_TODO
 
-_WD = ["일", "월", "화", "수", "목", "금", "토"]
 CELL = 58  # 정사각형 셀 한 변(px)
 
 
@@ -121,7 +120,7 @@ class MonthView(QWidget):
         lay.setSpacing(3)
 
         for c in range(7):
-            wd = QLabel(_WD[c])
+            wd = QLabel(policies.WEEKDAYS_KR[c])
             wd.setObjectName("wdHead")
             wd.setAlignment(Qt.AlignmentFlag.AlignHCenter)
             f = wd.font()

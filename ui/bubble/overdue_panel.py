@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import (
 
 from domain import policies
 from ui import theme
+from ui.qt_helpers import make_overlay_window
 
 PANEL_WIDTH = 140  # 밀린할일·타이머 공통 패널 폭(타이머 셀을 정사각형에 가깝게)
 
@@ -47,12 +48,7 @@ class OverduePanel(QWidget):
         self._settings = settings_repo
         self._open_day_cb = open_day_cb
 
-        self.setWindowFlags(
-            Qt.WindowType.FramelessWindowHint
-            | Qt.WindowType.Tool
-            | Qt.WindowType.WindowStaysOnTopHint
-        )
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        make_overlay_window(self)
         self.setFixedWidth(PANEL_WIDTH)
 
         self._root = QFrame(self)

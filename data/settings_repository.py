@@ -34,6 +34,10 @@ class SettingsRepository:
         )
         self.conn.commit()
 
+    def set_bool(self, key: str, value: bool) -> None:
+        """get_bool 의 짝: bool 을 '1'/'0' 으로 저장."""
+        self.set(key, "1" if value else "0")
+
     def all(self) -> dict[str, str]:
         rows = self.conn.execute("SELECT key, value FROM settings").fetchall()
         return {r["key"]: r["value"] for r in rows}

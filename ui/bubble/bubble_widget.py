@@ -45,6 +45,7 @@ from ui.bubble.month_view import MonthView
 from ui.bubble.overdue_panel import PANEL_WIDTH, OverduePanel
 from ui.bubble.timer_panel import TimerPanel
 from ui.bubble.week_view import WeekView
+from ui.qt_helpers import make_overlay_window
 
 class _ClickableLabel(QLabel):
     """클릭하면 콜백을 호출하는 제목 라벨(날짜 인풋박스 열기용, #4)."""
@@ -106,12 +107,7 @@ class BubbleWidget(QWidget):
         # ✕ 닫기로 말풍선만 내리고 옆 컬럼 패널(밀린할일·타이머)은 화면에 남길 때 True.
         self._panels_detached = False
 
-        self.setWindowFlags(
-            Qt.WindowType.FramelessWindowHint
-            | Qt.WindowType.Tool
-            | Qt.WindowType.WindowStaysOnTopHint
-        )
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        make_overlay_window(self)
 
         self.selected_iso = date.today().isoformat()
         self.view_mode = self._settings.get(policies.KEY_LAST_VIEW, "day") or "day"
@@ -493,13 +489,13 @@ class BubbleWidget(QWidget):
 
     def _on_overdue_panel_changed(self, on: bool) -> None:
         """밀린할일 표시 토글(메뉴/✕/escape 공통): 설정 저장 + 배치를 한 곳에서 처리."""
-        self._settings.set(policies.KEY_OVERDUE_PANEL, "1" if on else "0")
+        self._settings.set_bool(policies.KEY_OVERDUE_PANEL, on)
         self._show_overdue = on
         self._position_left_column()
 
     def _on_timer_panel_changed(self, on: bool) -> None:
         """타이머 표시 토글(메뉴/✕/자동열기/할일클릭 공통): 설정 저장 + 배치를 한 곳에서 처리."""
-        self._settings.set(policies.KEY_TIMER_PANEL, "1" if on else "0")
+        self._settings.set_bool(policies.KEY_TIMER_PANEL, on)
         self._show_timer = on
         self._position_left_column()
 
@@ -541,7 +537,7 @@ class BubbleWidget(QWidget):
         """✕ 닫기(헤더 버튼): 할일 목록 그리드만 끄고(KEY_LIST_SHOW=0) 밀린할일·타이머
         패널은 캐릭터 상단으로 옮겨 화면에 남긴다. 즉시 처리(애니메이션 없음, #1).
         남길 패널이 없으면 전체 최소화와 동일(역시 즉시)."""
-        self._settings.set(policies.KEY_LIST_SHOW, "0")
+        self._settings.set_bool(policies.KEY_LIST_SHOW, False)
         self._stop_anim()
         self._panels_detached = self._show_overdue or self._show_timer
         if self._panels_detached:
@@ -636,7 +632,7 @@ class BubbleWidget(QWidget):
         self._char_geom = char_geom
         self._screen_geom = screen_geom
         self._panels_detached = False  # 다시 열리면 패널은 말풍선 옆 컬럼으로 복귀
-        self._settings.set(policies.KEY_LIST_SHOW, "1")  # 목록 그리드 ON 상태로 기록
+        self._settings.set_bool(policies.KEY_LIST_SHOW, True)  # 목록 그리드 ON 상태로 기록
         self.render()  # 최소/저장 크기까지 여기서 확정(별도 adjustSize 금지: 커스텀 크기 덮어씀)
         # 위치를 먼저 잡고(이동) show → 첫 표시 시 엉뚱한 위치 깜빡임 방지
         self.move(self._placement(char_geom, screen_geom))

@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import QFrame, QVBoxLayout, QWidget
 
 from domain import policies
 from ui import theme
+from ui.qt_helpers import make_overlay_window
 
 W = 150          # 풍선 폭(px)
 TAIL = 8         # 꼬리 높이
@@ -38,12 +39,7 @@ class FloatingBubble(QWidget):
         self._settings = settings_repo
         self._tail_down = True   # True=꼬리 아래(풍선이 캐릭터 위)
 
-        self.setWindowFlags(
-            Qt.WindowType.FramelessWindowHint
-            | Qt.WindowType.Tool
-            | Qt.WindowType.WindowStaysOnTopHint
-        )
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        make_overlay_window(self)
         self.setFixedWidth(W)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 

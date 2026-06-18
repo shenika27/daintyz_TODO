@@ -26,6 +26,7 @@ from PyQt6.QtWidgets import QApplication, QMenu, QWidget
 from core import paths
 from domain import policies
 from ui.bubble.todo_item import MIME_TODO
+from ui.qt_helpers import make_overlay_window
 
 log = logging.getLogger(__name__)
 
@@ -106,12 +107,7 @@ class CharacterWidget(QWidget):
         self._moved = False
         self._undo_available = False   # 되돌리기(삭제 취소) 가능 여부 — 우클릭 메뉴에서 사용
 
-        self.setWindowFlags(
-            Qt.WindowType.FramelessWindowHint
-            | Qt.WindowType.Tool
-            | Qt.WindowType.WindowStaysOnTopHint
-        )
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        make_overlay_window(self)
         self.setAcceptDrops(True)  # 할일을 캐릭터로 끌어다 놓으면 삭제(휴지통)
 
         self._load_images()
@@ -258,11 +254,7 @@ class CharacterWidget(QWidget):
         elif self._idle:
             self._set_situation("idle")
         else:
-            self._set_situation(self._base_situation())
-
-    def _base_situation(self) -> str:
-        """특별 상황이 없을 때의 기본: open/closed는 캐릭터 클릭 시 3초 리액션으로만 표시."""
-        return "default"
+            self._set_situation("default")
 
     def _has_image(self, sit: str) -> bool:
         return self._pixmaps.get(sit) is not None or self._movies.get(sit) is not None
@@ -518,9 +510,9 @@ class CharacterWidget(QWidget):
         KEY_LIST_SHOW 가 한 번도 저장된 적 없으면(완전 첫 실행) 세 그리드 모두 켠다."""
         s = self._settings
         if s.get(policies.KEY_LIST_SHOW) is None:
-            s.set(policies.KEY_LIST_SHOW, "1")
-            s.set(policies.KEY_OVERDUE_PANEL, "1")
-            s.set(policies.KEY_TIMER_PANEL, "1")
+            s.set_bool(policies.KEY_LIST_SHOW, True)
+            s.set_bool(policies.KEY_OVERDUE_PANEL, True)
+            s.set_bool(policies.KEY_TIMER_PANEL, True)
         list_on = s.get_bool(policies.KEY_LIST_SHOW, False)
         overdue_on = s.get_bool(policies.KEY_OVERDUE_PANEL, True)
         timer_on = s.get_bool(policies.KEY_TIMER_PANEL, False)
@@ -585,7 +577,7 @@ class CharacterWidget(QWidget):
         elif self._idle:
             self._set_situation("idle")
         else:
-            self._set_situation(self._base_situation())
+            self._set_situation("default")
 
     # ── 우클릭 메뉴 ─────────────────────────────────────────
     def _show_menu(self, global_pos: QPoint) -> None:
@@ -635,7 +627,7 @@ class CharacterWidget(QWidget):
         전체 최소화(아무 그리드도 안 보임) 상태에서는 화면 출력을 하지 않는다 —
         그리드 출력은 캐릭터 좌클릭 액션이 담당한다(#2). 그리드가 떠 있는 동안엔 즉시 반영."""
         if not (self._bubble.isVisible() or self._bubble.any_panel_visible()):
-            self._settings.set(policies.KEY_LIST_SHOW, "1" if on else "0")
+            self._settings.set_bool(policies.KEY_LIST_SHOW, on)
             return
         if on == self._bubble.isVisible():
             return
