@@ -10,6 +10,7 @@
 """
 from __future__ import annotations
 
+import calendar
 from datetime import date, timedelta
 
 from PyQt6.QtCore import (
@@ -30,6 +31,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QSizeGrip,
     QSizePolicy,
+    QSpinBox,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -43,6 +45,40 @@ from ui.bubble.month_view import MonthView
 from ui.bubble.overdue_panel import PANEL_WIDTH, OverduePanel
 from ui.bubble.timer_panel import TimerPanel
 from ui.bubble.week_view import WeekView
+
+class _ClickableLabel(QLabel):
+    """클릭하면 콜백을 호출하는 제목 라벨(날짜 인풋박스 열기용, #4)."""
+
+    def __init__(self, on_click, parent=None):
+        super().__init__(parent)
+        self._on_click = on_click
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setToolTip("클릭하여 날짜 이동")
+
+    def mousePressEvent(self, e) -> None:
+        if e.button() == Qt.MouseButton.LeftButton:
+            self._on_click()
+        else:
+            super().mousePressEvent(e)
+
+
+class _ResizeGrip(QSizeGrip):
+    """우하단/임의 코너 크기조절 그립. 드래그 중에는 위치 재배치를 멈춰 떨림을 막고,
+    드래그가 끝났을 때만 콜백으로 크기 저장·재배치를 1회 수행한다(on_start/on_end)."""
+
+    def __init__(self, parent, on_start, on_end):
+        super().__init__(parent)
+        self._on_start = on_start
+        self._on_end = on_end
+
+    def mousePressEvent(self, e) -> None:
+        self._on_start()
+        super().mousePressEvent(e)
+
+    def mouseReleaseEvent(self, e) -> None:
+        super().mouseReleaseEvent(e)
+        self._on_end()
+
 
 _ORDER = ["day", "week", "month"]
 _WIDTH = {"day": 240, "week": 920, "month": 470}
@@ -105,8 +141,10 @@ class BubbleWidget(QWidget):
 
         # 사용자 리사이즈용 우하단 그립 + 모드별 커스텀 크기/최소높이 상태
         self._sizing = False  # 프로그램적 사이징 중에는 크기 저장 안 함
+        self._user_resizing = False  # 그립 드래그 중에는 재배치/저장을 미룬다(떨림 방지)
+        self._placed_side = "above"  # _placement 가 고른 배치 방향(그립 코너 결정용)
         self._min_h: dict[str, int] = {}  # 모드별 최소 높이(측정 최댓값 캐시)
-        self._grip = QSizeGrip(self)
+        self._grip = _ResizeGrip(self, self._on_resize_start, self._on_resize_end)
         self._grip.resize(16, 16)
         self._input = InputBar(self._service, lambda: self.selected_iso)
         self._vbox.addWidget(self._input)
@@ -145,8 +183,9 @@ class BubbleWidget(QWidget):
     # ── 헤더 ────────────────────────────────────────────────
     def _build_header(self, target_layout) -> None:
         bar = QHBoxLayout()
-        bar.setSpacing(2)
-        self._title = QLabel()
+        bar.setSpacing(1)  # 버튼 간격 최소화(#7) — 패딩은 headerBtn QSS 로 좁힘
+        # 제목(날짜) 클릭 → 날짜 인풋박스 열기(#4)
+        self._title = _ClickableLabel(self._open_date_editor)
         self._title.setObjectName("bubbleTitle")
         f = self._title.font()
         f.setBold(True)
@@ -154,54 +193,40 @@ class BubbleWidget(QWidget):
         self._title.setFont(f)
         bar.addWidget(self._title)
 
-        # 주간 전/다음 주 이동 (주간 모드에서만 노출, '주간' 텍스트 우측)
-        self._prev_week = QToolButton()
-        self._prev_week.setText("‹")  # ‹
-        self._prev_week.setToolTip("이전 주")
-        self._prev_week.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._prev_week.setVisible(False)
-        self._prev_week.clicked.connect(lambda: self._shift_week(-7))
-        bar.addWidget(self._prev_week)
+        # 날짜 인풋박스(일/월/연도) — 평소 숨김, 제목 클릭 시 노출(#4)
+        self._date_editor = self._build_date_editor()
+        self._date_editor.setVisible(False)
+        bar.addWidget(self._date_editor)
 
-        self._next_week = QToolButton()
-        self._next_week.setText("›")  # ›
-        self._next_week.setToolTip("다음 주")
-        self._next_week.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._next_week.setVisible(False)
-        self._next_week.clicked.connect(lambda: self._shift_week(7))
+        # 주간 전/다음 주 이동 (주간 모드에서만 노출, '주간' 텍스트 우측)
+        self._prev_week = self._nav_btn("‹", "이전 주", lambda: self._shift_week(-7))
+        bar.addWidget(self._prev_week)
+        self._next_week = self._nav_btn("›", "다음 주", lambda: self._shift_week(7))
         bar.addWidget(self._next_week)
 
         # 일간 전/다음 날 이동 (일간 모드에서만 노출, 날짜 우측의 ‹ ›)
-        self._prev_day = QToolButton()
-        self._prev_day.setText("‹")
-        self._prev_day.setToolTip("이전 날")
-        self._prev_day.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._prev_day.setVisible(False)
-        self._prev_day.clicked.connect(lambda: self._shift_day(-1))
+        self._prev_day = self._nav_btn("‹", "이전 날", lambda: self._shift_day(-1))
         bar.addWidget(self._prev_day)
-
-        self._next_day = QToolButton()
-        self._next_day.setText("›")
-        self._next_day.setToolTip("다음 날")
-        self._next_day.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._next_day.setVisible(False)
-        self._next_day.clicked.connect(lambda: self._shift_day(1))
+        self._next_day = self._nav_btn("›", "다음 날", lambda: self._shift_day(1))
         bar.addWidget(self._next_day)
+
+        # 월간 전/다음 달 이동 (월간 모드에서만 노출) — 1일이 일요일이라 이전 달 진입이
+        # 막히던 문제 해소(#6).
+        self._prev_month = self._nav_btn("‹", "이전 달", lambda: self._shift_month(-1))
+        bar.addWidget(self._prev_month)
+        self._next_month = self._nav_btn("›", "다음 달", lambda: self._shift_month(1))
+        bar.addWidget(self._next_month)
 
         bar.addStretch(1)
 
         # 되돌리기(↺)는 캐릭터 우클릭 메뉴로 이동(헤더 버튼 과밀 해소).
 
         # 오늘로 이동 (주간/월간에서만 노출, 전환버튼 왼쪽)
-        self._today_btn = QToolButton()
-        self._today_btn.setText("오늘")
-        self._today_btn.setToolTip("오늘로 이동")
-        self._today_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._today_btn.setVisible(False)
-        self._today_btn.clicked.connect(self.go_today)
+        self._today_btn = self._nav_btn("오늘", "오늘로 이동", self.go_today)
         bar.addWidget(self._today_btn)
 
         self._expand = QToolButton()
+        self._expand.setObjectName("headerBtn")
         self._expand.setText("\u26f6")  # ⛶ 확장
         self._expand.setToolTip("확장 (일→주→월)")
         self._expand.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -209,21 +234,103 @@ class BubbleWidget(QWidget):
         bar.addWidget(self._expand)
 
         self._min = QToolButton()
+        self._min.setObjectName("headerBtn")
         self._min.setText("\u2013")  # –
         self._min.setToolTip("최소화 (모두 숨김)")
         self._min.setCursor(Qt.CursorShape.PointingHandCursor)
         self._min.clicked.connect(self._minimize)
         bar.addWidget(self._min)
-
-        # 닫기(✕): 말풍선만 닫고 밀린할일·타이머 패널은 화면에 남긴다(최소화 −는 모두 숨김).
-        self._close = QToolButton()
-        self._close.setText("✕")  # ✕
-        self._close.setToolTip("닫기 (패널 유지)")
-        self._close.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._close.clicked.connect(self.close_keep_panels)
-        bar.addWidget(self._close)
+        # 닫기(✕) 버튼은 제거 — 목록만 닫기(패널 유지)는 우클릭 메뉴의 '할일 목록 표시'
+        # 토글로 수행한다(#5). close_keep_panels() 메서드는 그 경로에서 계속 쓰인다.
 
         target_layout.addLayout(bar)
+
+    def _nav_btn(self, text: str, tip: str, slot, always: bool = False) -> QToolButton:
+        """헤더용 좁은 툴버튼 생성(#7: objectName=headerBtn 으로 패딩 축소).
+        always=False 면 기본 숨김(모드별로 _render_body 가 표시 제어)."""
+        b = QToolButton()
+        b.setObjectName("headerBtn")
+        b.setText(text)
+        b.setToolTip(tip)
+        b.setCursor(Qt.CursorShape.PointingHandCursor)
+        if not always:
+            b.setVisible(False)
+        b.clicked.connect(slot)
+        return b
+
+    # ── 날짜 인풋박스(#4) ───────────────────────────────────
+    def _build_date_editor(self) -> QWidget:
+        """년/월/일 스핀박스 + 이동 버튼. 모드별로 '일' 입력은 _open_date_editor 가 토글."""
+        box = QWidget()
+        row = QHBoxLayout(box)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(2)
+
+        self._year_spin = QSpinBox()
+        self._year_spin.setObjectName("dateSpin")
+        self._year_spin.setRange(1970, 2100)
+        self._year_spin.setSuffix("년")
+        self._month_spin = QSpinBox()
+        self._month_spin.setObjectName("dateSpin")
+        self._month_spin.setRange(1, 12)
+        self._month_spin.setSuffix("월")
+        self._month_spin.setWrapping(True)
+        self._day_spin = QSpinBox()
+        self._day_spin.setObjectName("dateSpin")
+        self._day_spin.setRange(1, 31)
+        self._day_spin.setSuffix("일")
+        self._day_spin.setWrapping(True)
+        for sp in (self._year_spin, self._month_spin, self._day_spin):
+            sp.lineEdit().returnPressed.connect(self._commit_date_editor)
+        # 월/연도 변경 시 '일' 상한을 그 달 말일로 맞춘다.
+        self._year_spin.valueChanged.connect(self._clamp_day_max)
+        self._month_spin.valueChanged.connect(self._clamp_day_max)
+
+        go = QToolButton()
+        go.setObjectName("headerBtn")
+        go.setText("이동")
+        go.setToolTip("해당 날짜로 이동")
+        go.setCursor(Qt.CursorShape.PointingHandCursor)
+        go.clicked.connect(self._commit_date_editor)
+
+        row.addWidget(self._year_spin)
+        row.addWidget(self._month_spin)
+        row.addWidget(self._day_spin)
+        row.addWidget(go)
+        return box
+
+    def _clamp_day_max(self) -> None:
+        last = calendar.monthrange(self._year_spin.value(), self._month_spin.value())[1]
+        if self._day_spin.value() > last:
+            self._day_spin.setValue(last)
+        self._day_spin.setMaximum(last)
+
+    def _open_date_editor(self) -> None:
+        """제목 클릭: 현재 선택 날짜로 인풋을 채우고 노출(월간은 '일' 입력 숨김)."""
+        d = date.fromisoformat(self.selected_iso)
+        self._year_spin.setValue(d.year)
+        self._month_spin.setValue(d.month)
+        self._clamp_day_max()
+        self._day_spin.setValue(d.day)
+        self._day_spin.setVisible(self.view_mode != "month")  # 월간은 일 불필요
+        # 일간은 폭이 좁아 스핀박스 공간 확보를 위해 나머지 버튼 숨김
+        if self.view_mode == "day":
+            for w in (self._prev_day, self._next_day, self._today_btn,
+                      self._expand, self._min):
+                w.setVisible(False)
+        self._title.setVisible(False)
+        self._date_editor.setVisible(True)
+        self._year_spin.setFocus()
+        self._year_spin.selectAll()
+
+    def _commit_date_editor(self) -> None:
+        """인풋 확정: 선택 날짜로 이동(현재 보기 모드 유지). render 가 제목을 복원."""
+        if not self._date_editor.isVisible():
+            return
+        y, m = self._year_spin.value(), self._month_spin.value()
+        last = calendar.monthrange(y, m)[1]
+        d = 1 if self.view_mode == "month" else min(self._day_spin.value(), last)
+        self.select_date(date(y, m, d).isoformat())
 
     # ── 렌더 ────────────────────────────────────────────────
     def render(self) -> None:
@@ -271,18 +378,26 @@ class BubbleWidget(QWidget):
                              self.open_day, holder)
         self._view_layout.addWidget(view)
 
+        # 렌더 시 날짜 인풋박스는 닫고 제목을 복원한다(편집 중 외부 갱신 대비, #4)
+        self._date_editor.setVisible(False)
+        self._title.setVisible(True)
         self._title.setText(self._title_text())
-        # 오늘이면 제목을 강조색으로
-        is_today = self.selected_iso == date.today().isoformat()
-        self._title.setProperty("today", "true" if is_today else "false")
+        # 오늘(일)/이번 주(주)/이번 달(월)이면 제목을 강조색으로
+        self._title.setProperty("today", "true" if self._title_is_today() else "false")
         self._title.style().unpolish(self._title)
         self._title.style().polish(self._title)
+        # 날짜 인풋 열 때 숨겼던 확장/최소화 버튼 복원(_open_date_editor 대응)
+        self._expand.setVisible(True)
+        self._min.setVisible(True)
         is_week = self.view_mode == "week"
         self._prev_week.setVisible(is_week)
         self._next_week.setVisible(is_week)
         is_day = self.view_mode == "day"
         self._prev_day.setVisible(is_day)
         self._next_day.setVisible(is_day)
+        is_month = self.view_mode == "month"
+        self._prev_month.setVisible(is_month)
+        self._next_month.setVisible(is_month)
         # 주/월간은 항상, 일간은 오늘이 아닐 때만 '오늘로 이동' 노출(#1)
         self._today_btn.setVisible(
             self.view_mode in ("week", "month")
@@ -306,8 +421,23 @@ class BubbleWidget(QWidget):
 
     def _title_text(self) -> str:
         d = date.fromisoformat(self.selected_iso)
-        label = {"day": "", "week": "  · 주간", "month": "  · 월간"}[self.view_mode]
-        return f"{policies.fmt_md(d)}{label}"
+        if self.view_mode == "week":
+            month, wk = policies.week_of_month(d)
+            return f"{month}월 {wk}주차"
+        if self.view_mode == "month":
+            return f"{d.month}월"
+        return policies.fmt_md(d)
+
+    def _title_is_today(self) -> bool:
+        """제목을 강조색으로 칠할지: 일=오늘 날짜, 주=이번 주 포함, 월=이번 달."""
+        d = date.fromisoformat(self.selected_iso)
+        today = date.today()
+        if self.view_mode == "week":
+            s, e = policies.week_range(d)
+            return s <= today <= e
+        if self.view_mode == "month":
+            return (today.year, today.month) == (d.year, d.month)
+        return self.selected_iso == today.isoformat()
 
     def select_date(self, iso: str) -> None:
         self.selected_iso = iso
@@ -328,6 +458,17 @@ class BubbleWidget(QWidget):
         """일간 보기에서 선택 날짜를 ±1일 이동(날짜 우측 ‹ › 버튼)."""
         d = date.fromisoformat(self.selected_iso) + timedelta(days=days)
         self.selected_iso = d.isoformat()
+        self.render()
+
+    def _shift_month(self, months: int) -> None:
+        """월간 보기에서 선택 날짜를 ±N개월 이동(날짜는 말일로 clamp). 그 달 1일이
+        일요일이라 그리드만으로는 이전 달로 못 넘어가던 문제를 해소한다(#6)."""
+        d = date.fromisoformat(self.selected_iso)
+        idx = d.year * 12 + (d.month - 1) + months
+        y, m = divmod(idx, 12)
+        m += 1
+        day = min(d.day, calendar.monthrange(y, m)[1])
+        self.selected_iso = date(y, m, day).isoformat()
         self.render()
 
     def open_day(self, iso: str) -> None:
@@ -519,6 +660,7 @@ class BubbleWidget(QWidget):
         if self._char_geom is None or self._screen_geom is None:
             return
         self.move(self._placement(self._char_geom, self._screen_geom))
+        self._update_grip()
         self._position_left_column()
 
     # ── 사용자 리사이즈(우하단 그립) + 모드별 크기 기억 ──────────
@@ -554,17 +696,59 @@ class BubbleWidget(QWidget):
             self._sizing = False
         self._reposition()
 
+    def _update_grip(self) -> None:
+        """캐릭터 반대편 코너로 크기조절 그립을 둔다. 배치 방향(_placed_side)으로
+        '캐릭터를 마주본 가장자리'를 알아내 그 반대 모서리에 그립을 두면, QSizeGrip 이
+        대각선 반대(=캐릭터 쪽) 코너를 고정해 캐릭터 반대 방향으로 자란다."""
+        g = getattr(self, "_grip", None)
+        if g is None:
+            return
+        gw, gh = g.width(), g.height()
+        side = self._placed_side
+        char = self._char_geom
+        if side == "above":      # 캐릭터가 버블 아래 → 그립 위쪽
+            gy = 3
+        elif side == "below":    # 캐릭터가 버블 위 → 그립 아래쪽
+            gy = self.height() - gh - 3
+        else:                    # 좌/우 배치: 세로는 캐릭터 중심 반대편
+            below = char is not None and char.center().y() > self.y() + self.height() / 2
+            gy = 3 if below else self.height() - gh - 3
+        if side == "left":       # 캐릭터가 버블 오른쪽 → 그립 왼쪽
+            gx = 3
+        elif side == "right":    # 캐릭터가 버블 왼쪽 → 그립 오른쪽
+            gx = self.width() - gw - 3
+        else:                    # 위/아래 배치: 가로는 캐릭터 중심 반대편
+            right = char is not None and char.center().x() > self.x() + self.width() / 2
+            gx = 3 if right else self.width() - gw - 3
+        g.move(gx, gy)
+        g.raise_()
+
+    def _on_resize_start(self) -> None:
+        """그립 드래그 시작: 드래그 동안 재배치/저장을 멈춘다(떨림·깜빡임 방지)."""
+        self._user_resizing = True
+
+    def _on_resize_end(self) -> None:
+        """그립 드래그 종료: 최종 크기를 1회 저장하고 위치를 1회 정리(A안)."""
+        self._user_resizing = False
+        if self._sizing or not self.isVisible():
+            return
+        self._save_size()
+        self._reposition()  # 화면 밖 clamp + 옆 패널 재배치 1회
+
+    def _save_size(self) -> None:
+        self._settings.set(policies.KEY_BUBBLE_SIZE_PREFIX + self.view_mode,
+                           f"{self.width()}x{self.height()}")
+
     def resizeEvent(self, e) -> None:
         super().resizeEvent(e)
-        if getattr(self, "_grip", None) is not None:
-            self._grip.move(self.width() - self._grip.width() - 3,
-                            self.height() - self._grip.height() - 3)
-            self._grip.raise_()
-        # 사용자가 그립으로 끈 크기만 저장(프로그램적 사이징 중에는 무시)
+        self._update_grip()
+        # 드래그 중에는 위치를 QSizeGrip 에 맡긴다(그립이 캐릭터 반대편 코너에 있어
+        # 대각선=캐릭터 쪽 코너가 고정됨). move()/저장은 release 에서 1회만 → 떨림 제거.
+        if self._user_resizing:
+            return
+        # 드래그가 아닌 비프로그램적 리사이즈(드물게): 기존처럼 저장만(재배치는 _reposition 경로가 담당)
         if not getattr(self, "_sizing", False) and self.isVisible():
-            self._settings.set(policies.KEY_BUBBLE_SIZE_PREFIX + self.view_mode,
-                               f"{self.width()}x{self.height()}")
-            self._position_left_column()  # 옆 컬럼 패널 높이도 같이 맞춤
+            self._save_size()
 
     def _timer_active(self) -> bool:
         return self._timer is not None and self._timer.is_active()
@@ -745,13 +929,18 @@ class BubbleWidget(QWidget):
         left_x = char.left() - w - _GAP
 
         if above_y >= scr.top() + _MARGIN:
+            self._placed_side = "above"
             return QPoint(hx, above_y)
         if below_y + h <= scr.bottom() - _MARGIN:
+            self._placed_side = "below"
             return QPoint(hx, below_y)
         if right_x + w + right_reserve <= scr.right() - _MARGIN:
+            self._placed_side = "right"
             return QPoint(right_x, vy)
         if left_x - left_reserve >= scr.left() + _MARGIN:
+            self._placed_side = "left"
             return QPoint(left_x, vy)
         # 최후: 화면 안으로 clamp (아주 작은 화면에서만 캐릭터와 겹칠 수 있음)
+        self._placed_side = "above"
         y = max(scr.top() + _MARGIN, min(above_y, scr.bottom() - h - _MARGIN))
         return QPoint(hx, y)

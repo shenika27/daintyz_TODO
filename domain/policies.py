@@ -36,6 +36,7 @@ KEY_HOTKEY_TODAY = "hotkey.today"                  # 오늘로 이동
 KEY_BUBBLE_ANIMATION = "app.bubble_animation"      # '0' | '1' — 팝업 열기/닫기 페이드 애니메이션
 KEY_TIMER_AUTO_COMPLETE = "timer.auto_complete"    # '0' | '1' — 타이머 완료 시 할일 자동 완료
 KEY_TIMER_STEP = "timer.adjust_step"               # 타이머 −/+ 증감 간격(초). 1분 미만은 항상 5초 고정.
+KEY_TODO_COUNT_BUBBLE = "bubble.todo_count_bubble"  # '0' | '1' — 최소화 시 '할일 n개' 풍선 표시
 
 DEFAULT_TIMER_STEP = 60   # 타이머 증감 간격 기본값(1분)
 
@@ -62,6 +63,19 @@ def week_range(anchor: date) -> tuple[date, date]:
     """anchor 가 포함된 주(일~토)의 (일요일, 토요일)."""
     sunday = anchor - timedelta(days=app_weekday(anchor))
     return sunday, sunday + timedelta(days=6)
+
+
+def week_of_month(anchor: date) -> tuple[int, int]:
+    """anchor 가 속한 주(일~토)의 (월, 그 달의 몇 번째 주). 예: (6, 3) = 6월 3주차.
+
+    주가 두 달에 걸칠 때는 그 주의 수요일(7일 중 가운데)이 속한 달을 기준으로 삼고,
+    그 달 1일이 속한 주를 1주차로 센다(일요일 시작 기준)."""
+    sunday, _ = week_range(anchor)
+    mid = sunday + timedelta(days=3)            # 그 주의 수요일 = 소속 월 판정 기준
+    first = mid.replace(day=1)
+    first_sunday = first - timedelta(days=app_weekday(first))
+    week_idx = (sunday - first_sunday).days // 7 + 1
+    return mid.month, week_idx
 
 
 def month_grid_range(anchor: date) -> tuple[date, date]:

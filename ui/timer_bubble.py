@@ -6,21 +6,17 @@
   - 캐릭터 드래그 시 함께 따라온다(place_for 재호출)
   - 트레이 최소화 중에도 단독으로 남을 수 있다(소유는 컨트롤러/캐릭터가 관리)
 독립 top-level 위젯이라 캐릭터가 hide 돼도 살아남는다.
+외형(둥근 몸체+꼬리·배치·테마 골격)은 FloatingBubble 베이스가 담당한다.
 """
 from __future__ import annotations
 
-from PyQt6.QtCore import QPoint, QRect, Qt, pyqtSignal
-from PyQt6.QtGui import QBrush, QColor, QPainter, QPen, QPolygon
-from PyQt6.QtWidgets import QApplication, QFrame, QLabel, QVBoxLayout, QWidget
+from PyQt6.QtCore import QPoint, Qt, pyqtSignal
+from PyQt6.QtGui import QFontMetrics
+from PyQt6.QtWidgets import QApplication, QLabel, QVBoxLayout
 
 from domain import policies
 from ui import theme
-
-_W = 150          # 풍선 폭(px)
-_TAIL = 8         # 꼬리 높이
-_PAD = 8          # 그림자/여백
-_GAP = 8          # 캐릭터와의 간격
-_MARGIN = 6       # 화면 가장자리 여백
+from ui.floating_bubble import W, FloatingBubble
 
 
 def _fmt(seconds: int) -> str:
@@ -32,23 +28,12 @@ def _fmt(seconds: int) -> str:
     return f"{m:02d}:{s:02d}"
 
 
-class TimerBubble(QWidget):
+class TimerBubble(FloatingBubble):
     clicked = pyqtSignal()
 
     def __init__(self, events, settings_repo, parent=None):
-        super().__init__(parent)
+        super().__init__(settings_repo, parent)
         self._events = events
-        self._settings = settings_repo
-        self._tail_down = True   # True=꼬리 아래(풍선이 캐릭터 위)
-
-        self.setWindowFlags(
-            Qt.WindowType.FramelessWindowHint
-            | Qt.WindowType.Tool
-            | Qt.WindowType.WindowStaysOnTopHint
-        )
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-        self.setFixedWidth(_W)
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
         # 드래그 허용 여부: 캐릭터가 내려간(트레이 최소화) 단독 표시일 때만 True.
         # 부착 모드(캐릭터+풍선)에선 위치는 캐릭터를 따라가고, 클릭으로 투두를 연다.
         self._draggable = False
@@ -56,12 +41,6 @@ class TimerBubble(QWidget):
         self._press_frame: QPoint | None = None
         self._moved = False
         self._update_hint()
-
-        self._root = QFrame(self)
-        self._root.setObjectName("timerBubbleRoot")
-        self._outer = QVBoxLayout(self)
-        self._outer.setContentsMargins(_PAD, _PAD, _PAD, _PAD + _TAIL)
-        self._outer.addWidget(self._root)
 
         v = QVBoxLayout(self._root)
         v.setContentsMargins(10, 6, 10, 6)
@@ -87,90 +66,25 @@ class TimerBubble(QWidget):
 
     # ── 스타일 ──────────────────────────────────────────────
     def apply_theme(self) -> None:
-        mode = self._settings.get(policies.KEY_THEME, "system")
-        c = theme.palette(mode)
-        self._bg = QColor(c["bg"])
-        # border_strong 은 rgba 문자열이라 QColor 파싱이 안 되므로 모드별 고정 알파 사용
-        dark = theme.resolve(mode) == "dark"
-        self._border = QColor(255, 255, 255, 46) if dark else QColor(0, 0, 0, 40)
+        c = theme.palette(self._settings.get(policies.KEY_THEME, "system"))
         self.setStyleSheet(
-            f"""
-            #timerBubbleRoot {{ background: transparent; }}
-            #timerBubbleRoot QLabel {{ background: transparent; }}
-            #timerBubbleRoot QLabel#tbTime {{ color: {c['accent_text']}; }}
-            #timerBubbleRoot QLabel#tbName {{ color: {c['sub']}; }}
-            """
+            self._chrome_theme()
+            + f"#bubbleRootMini QLabel#tbTime {{ color: {c['accent_text']}; }}"
+            + f"#bubbleRootMini QLabel#tbName {{ color: {c['sub']}; }}"
         )
         self.update()
 
     # ── 갱신 ────────────────────────────────────────────────
     def set_content(self, content: str, remaining: int) -> None:
-        from PyQt6.QtGui import QFontMetrics
-
         fm = QFontMetrics(self._name.font())
-        self._name.setText(fm.elidedText(content, Qt.TextElideMode.ElideRight, _W - 28))
+        self._name.setText(fm.elidedText(content, Qt.TextElideMode.ElideRight, W - 28))
         self._time.setText(_fmt(remaining))
 
     def _on_tick(self, _todo_id: int, remaining: int) -> None:
         if self.isVisible():
             self._time.setText(_fmt(remaining))
 
-    # ── 배치 ────────────────────────────────────────────────
-    def place_for(self, char_geom: QRect, screen_geom: QRect) -> None:
-        """캐릭터 위에 두되 공간 없으면 아래로(꼬리 방향도 반전)."""
-        self.adjustSize()
-        h = self.height()
-        w = self.width()
-        above_y = char_geom.top() - h - _GAP + _TAIL  # 꼬리만큼 가깝게
-        below_y = char_geom.bottom() + _GAP - _TAIL
-        if above_y >= screen_geom.top() + _MARGIN:
-            self._set_tail(True)
-            y = above_y
-        else:
-            self._set_tail(False)
-            y = below_y
-        x = char_geom.center().x() - w // 2
-        x = max(screen_geom.left() + _MARGIN, min(x, screen_geom.right() - w - _MARGIN))
-        self.move(x, y)
-
-    def _set_tail(self, down: bool) -> None:
-        if down == self._tail_down:
-            return
-        self._tail_down = down
-        if down:
-            self._outer.setContentsMargins(_PAD, _PAD, _PAD, _PAD + _TAIL)
-        else:
-            self._outer.setContentsMargins(_PAD, _PAD + _TAIL, _PAD, _PAD)
-        self.adjustSize()
-        self.update()
-
-    # ── 그리기: 둥근 풍선 몸체 + 꼬리 ───────────────────────
-    def paintEvent(self, _e) -> None:
-        p = QPainter(self)
-        p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        r = self._root.geometry()
-        p.setBrush(QBrush(self._bg))
-        p.setPen(QPen(self._border, 1))
-        p.drawRoundedRect(r, 12, 12)
-
-        cx = r.center().x()
-        if self._tail_down:
-            ty = r.bottom()
-            tail = QPolygon([
-                QPoint(cx - _TAIL, ty - 1),
-                QPoint(cx + _TAIL, ty - 1),
-                QPoint(cx, ty + _TAIL),
-            ])
-        else:
-            ty = r.top()
-            tail = QPolygon([
-                QPoint(cx - _TAIL, ty + 1),
-                QPoint(cx + _TAIL, ty + 1),
-                QPoint(cx, ty - _TAIL),
-            ])
-        p.setPen(Qt.PenStyle.NoPen)
-        p.drawPolygon(tail)
-
+    # ── 드래그 가능 여부 ────────────────────────────────────
     def set_draggable(self, on: bool) -> None:
         """단독 표시(트레이 최소화)면 True → 드래그로 이동.
         부착 모드면 False → 이동 없이 클릭으로 투두를 연다."""

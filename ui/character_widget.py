@@ -47,7 +47,7 @@ _FALLBACK_BASE = {
 }
 _REACTION_MS = 3000       # 완료(done) 리액션 표시 시간
 _TIMER_DONE_MS = 3000     # 타이머 만료(timer_done) 리액션 표시 시간
-_GRID_REACT_MS = 2000     # 그리드 열기(open)/닫기(closed) 리액션 표시 시간
+_GRID_REACT_MS = 1000     # 그리드 열기(open)/닫기(closed) 리액션 표시 시간
 _FALLBACK_EXTS = (".png", ".gif")  # 우선순위 순(둘 다 있으면 png)
 
 # 상황 → 설정 키. 'default' 는 기본 이미지, 나머지는 없으면 default 로 폴백.
@@ -78,7 +78,7 @@ def _bundled_fallback(situation: str) -> str | None:
 
 class CharacterWidget(QWidget):
     def __init__(self, service, events, settings_repo, bubble, controller,
-                 timer_service=None, timer_bubble=None, parent=None):
+                 timer_service=None, timer_bubble=None, todo_bubble=None, parent=None):
         super().__init__(parent)
         self._service = service
         self._events = events
@@ -87,6 +87,7 @@ class CharacterWidget(QWidget):
         self._controller = controller
         self._timer = timer_service
         self._timer_bubble = timer_bubble
+        self._todo_bubble = todo_bubble
 
         self._pixmaps: dict[str, QPixmap | None] = {}
         self._movies: dict[str, QMovie | None] = {}  # 애니메이션 GIF 상황별
@@ -115,6 +116,7 @@ class CharacterWidget(QWidget):
         self._events.character_image_changed.connect(self._on_image_changed)
         self._events.character_scale_changed.connect(self._load_images)
         self._events.todos_changed.connect(lambda _iso: self._refresh_situation())
+        self._events.todos_changed.connect(lambda _iso: self._sync_todo_count_bubble())
         self._events.todo_completed.connect(self._on_todo_completed)
         self._events.delete_undo_available.connect(self._on_undo_available)
         if self._timer is not None:
@@ -125,6 +127,11 @@ class CharacterWidget(QWidget):
             self._events.timer_resumed.connect(self._on_timer_resumed)
         if self._timer_bubble is not None:
             self._timer_bubble.clicked.connect(self._on_timer_bubble_clicked)
+        if self._todo_bubble is not None:
+            self._todo_bubble.clicked.connect(self._on_todo_bubble_clicked)
+            self._events.todo_count_bubble_changed.connect(
+                lambda _on: self._sync_todo_count_bubble()
+            )
         # 그리드 열림/닫힘 → open/closed 리액션(3초) 후 기본 이미지 복귀
         self._events.bubble_opened.connect(self._on_bubble_opened)
         self._events.bubble_closed.connect(self._on_bubble_closed)
@@ -312,8 +319,11 @@ class CharacterWidget(QWidget):
             self._restore_situation()  # work 이미지로 복귀
 
     def _on_bubble_opened(self) -> None:
-        """말풍선(그리드)이 열렸을 때: open 이미지를 3초 표시 후 기본 이미지 복귀."""
-        self._start_reaction("open", _GRID_REACT_MS)
+        """말풍선(그리드)이 열렸을 때: open 이미지를 3초 표시 후 기본 이미지 복귀.
+        단, 타이머 진행 중(정지 포함)이면 work/pause 이미지를 유지한다."""
+        if not self._working:
+            self._start_reaction("open", _GRID_REACT_MS)
+        self._sync_todo_count_bubble()  # 그리드 열림 → '할일 n개' 풍선 숨김
 
     def _on_bubble_closed(self) -> None:
         """말풍선(그리드)이 닫혔을 때: 타이머 풍선 동기화 + 상황 갱신.
@@ -325,6 +335,39 @@ class CharacterWidget(QWidget):
     def _on_timer_bubble_clicked(self) -> None:
         """타이머 풍선 클릭: (최소화 상태면 복원하고) 말풍선 열기."""
         self._controller.show_from_timer_bubble()
+
+    def _on_todo_bubble_clicked(self) -> None:
+        """'할일 n개' 풍선 클릭: 그리드를 다시 연다(캐릭터 클릭과 동일)."""
+        self._toggle_bubble()
+
+    def _today_incomplete_count(self) -> int:
+        today = date.today().isoformat()
+        return sum(1 for t in self._service.list_for_date(today) if not t.completed)
+
+    def _sync_todo_count_bubble(self) -> None:
+        """그리드가 모두 숨겨진(최소화) 상태에서 오늘 미완료 할일이 있으면 '할일 n개'
+        풍선을 캐릭터 옆에 띄운다. 단, 타이머 풍선이 떠 있으면 타이머 우선이라 숨긴다(#2)."""
+        tb = self._todo_bubble
+        if tb is None:
+            return
+        on = self._settings.get_bool(policies.KEY_TODO_COUNT_BUBBLE, True)
+        timer_showing = (
+            self._timer_bubble is not None and self._timer_bubble.isVisible()
+        )
+        grids_hidden = (
+            self.isVisible()
+            and not self._bubble.isVisible()
+            and not self._bubble.any_panel_visible()
+        )
+        count = self._today_incomplete_count() if (on and grids_hidden) else 0
+        if on and grids_hidden and not timer_showing and count > 0:
+            tb.set_count(count)
+            scr = self._screen_for(self.frameGeometry().center()).availableGeometry()
+            tb.place_for(self.frameGeometry(), scr)
+            tb.show()
+            tb.raise_()
+        else:
+            tb.hide()
 
     def sync_timer_bubble(self, standalone: bool = False) -> None:
         """타이머 풍선 표시 동기화(외부=컨트롤러용 공개 래퍼).
@@ -355,6 +398,8 @@ class CharacterWidget(QWidget):
             tb.raise_()
         else:
             tb.hide()
+        # 타이머 풍선 상태가 정해진 뒤 '할일 n개' 풍선을 동기화(타이머 우선).
+        self._sync_todo_count_bubble()
 
     def _on_image_changed(self, _path: str) -> None:
         self._load_images()
@@ -449,7 +494,8 @@ class CharacterWidget(QWidget):
         - 모두 숨겨져 있으면 '켜진' 그리드만 다시 표시(꺼진 그리드는 안 나옴)
         - 모든 그리드가 꺼져 있으면 전부 켠다(escape)."""
         if self._bubble.isVisible() or self._bubble.any_panel_visible():
-            self._start_reaction("closed", _GRID_REACT_MS)  # 클릭 즉시 closed 이미지
+            if not self._working:  # 타이머 진행 중(정지 포함)이면 work/pause 이미지 유지
+                self._start_reaction("closed", _GRID_REACT_MS)  # 클릭 즉시 closed 이미지
             self._bubble.minimize_all()
         else:
             self._restore_grids()
@@ -470,7 +516,8 @@ class CharacterWidget(QWidget):
             self._bubble.show_for_character(self.frameGeometry(), scr)  # bubble_opened emit → open 리액션
         else:
             self._bubble.show_detached_panels(self.frameGeometry(), scr)
-            self._start_reaction("open", _GRID_REACT_MS)  # 패널만 열릴 때도 캐릭터 클릭 → open 리액션
+            if not self._working:  # 타이머 진행 중(정지 포함)이면 work/pause 이미지 유지
+                self._start_reaction("open", _GRID_REACT_MS)  # 패널만 열릴 때도 캐릭터 클릭 → open 리액션
         self._sync_timer_bubble()
 
     # ── 휴지통(할일 드롭=삭제) ──────────────────────────────
