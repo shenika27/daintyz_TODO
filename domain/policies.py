@@ -6,7 +6,6 @@ from datetime import date, timedelta
 
 # 설정 키 상수 (오타 방지를 위해 한 곳에 모음)
 KEY_INCOMPLETE = "policy.incomplete"        # 'keep' | 'rollover'
-KEY_MONTH_OVERFLOW = "policy.month_overflow"  # 'skip' | 'clamp'
 KEY_FONT = "app.font"                        # 폰트 서체 패밀리명 (빈 문자열 = 시스템 기본)
 KEY_IMAGE_PATH = "character.image_path"            # 기본(오늘, 특이사항 없음)
 KEY_IMAGE_OVERDUE = "character.image_overdue"      # 이전 날짜 미달성 할일이 있을 때
@@ -90,12 +89,11 @@ def month_grid_range(anchor: date) -> tuple[date, date]:
     return grid_start, grid_end
 
 
-def monthly_target_day(year: int, month: int, wanted: int, overflow: str) -> int | None:
+def monthly_target_day(year: int, month: int, wanted: int) -> int:
     """월간 규칙이 해당 (year, month) 에서 실제로 떨어지는 날.
 
-    overflow='clamp' 면 말일로 당김, 'skip' 이면 없는 날은 None.
+    해당 월에 wanted 일이 없으면 말일로 당김(clamp).
+    예: 2월에 31일 규칙 → 28일(또는 29일).
     """
     last = calendar.monthrange(year, month)[1]
-    if wanted <= last:
-        return wanted
-    return last if overflow == "clamp" else None
+    return min(wanted, last)

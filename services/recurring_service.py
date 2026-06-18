@@ -3,7 +3,7 @@
 핵심
   - 날짜(범위)를 펼칠 때 호출 → 해당 규칙을 todos 행으로 1회 기록.
   - 존재 검사는 (recurring_id, due_date) 만 본다(hidden 무시) → 숨긴 회차 재생성 방지.
-  - 월간 31일 없는 달: 설정 policy.month_overflow ('skip'|'clamp') 로 분기.
+  - 월간 31일 없는 달: 말일로 당김(clamp) — 예: 2월에 31일 규칙 → 28일 생성.
 """
 from __future__ import annotations
 
@@ -29,17 +29,16 @@ class RecurringService:
         rules = [r for r in self._rules.list_all() if r.active]
         if not rules:
             return
-        overflow = self._settings.get(policies.KEY_MONTH_OVERFLOW, "skip")
         cur = start
         while cur <= end:
             for rule in rules:
-                if self._applies(rule, cur, overflow):
+                if self._applies(rule, cur):
                     self._materialize(rule, cur)
             cur += timedelta(days=1)
         self.conn.commit()
 
     # ── 내부 ────────────────────────────────────────────────
-    def _applies(self, rule: RecurringRule, day: date, overflow: str) -> bool:
+    def _applies(self, rule: RecurringRule, day: date) -> bool:
         iso = day.isoformat()
         if rule.start_date and iso < rule.start_date:
             return False
@@ -52,10 +51,8 @@ class RecurringService:
             allowed = {int(x) for x in (rule.weekdays or "").split(",") if x != ""}
             return policies.app_weekday(day) in allowed
         if rule.rule_type == "monthly":
-            target = policies.monthly_target_day(
-                day.year, day.month, rule.day_of_month or 1, overflow
-            )
-            return target is not None and day.day == target
+            target = policies.monthly_target_day(day.year, day.month, rule.day_of_month or 1)
+            return day.day == target
         return False
 
     def _materialize(self, rule: RecurringRule, day: date) -> None:

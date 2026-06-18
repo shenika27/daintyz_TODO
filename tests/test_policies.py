@@ -25,13 +25,14 @@ def test_month_grid_is_42_days_from_sunday():
     assert (e - s).days == 41
 
 
-def test_monthly_clamp_vs_skip():
-    # 2월(28일)에 31일 규칙
-    assert policies.monthly_target_day(2026, 2, 31, "skip") is None
-    assert policies.monthly_target_day(2026, 2, 31, "clamp") == 28
+def test_monthly_target_day_clamp():
+    # 해당 월에 없는 날짜는 말일로 당김
+    assert policies.monthly_target_day(2026, 2, 31) == 28
+    assert policies.monthly_target_day(2026, 2, 29) == 28   # 평년
+    assert policies.monthly_target_day(2024, 2, 31) == 29   # 윤년
     # 존재하는 날짜는 그대로
-    assert policies.monthly_target_day(2026, 1, 31, "skip") == 31
-    assert policies.monthly_target_day(2026, 1, 15, "clamp") == 15
+    assert policies.monthly_target_day(2026, 1, 31) == 31
+    assert policies.monthly_target_day(2026, 1, 15) == 15
 
 
 def _run_all():

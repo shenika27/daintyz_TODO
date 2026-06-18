@@ -147,16 +147,6 @@ class SettingsDialog(QDialog):
         )
         form.addRow("미완료 할일", self._incomplete)
 
-        # 월간 오버플로
-        self._overflow = QComboBox()
-        self._overflow.addItem("없는 달은 건너뜀 (skip)", "skip")
-        self._overflow.addItem("말일로 당김 (clamp)", "clamp")
-        self._select_data(self._overflow, self._settings.get(policies.KEY_MONTH_OVERFLOW, "skip"))
-        self._overflow.currentIndexChanged.connect(
-            lambda: self._settings.set(policies.KEY_MONTH_OVERFLOW, self._overflow.currentData())
-        )
-        form.addRow("월 마지막날 규칙", self._overflow)
-
         # 타이머 −/+ 증감 간격 (1분 미만은 항상 5초 고정)
         self._timer_step = QComboBox()
         for label, secs in (
@@ -452,7 +442,11 @@ class SettingsDialog(QDialog):
 
         self._dom = QSpinBox()
         self._dom.setRange(1, 31)
+        dom_note = QLabel("해당 월에 지정한 날이 없으면 말일에 생성됩니다.\n(예: 31일 설정 시 2월은 28일 또는 29일에 생성)")
+        dom_note.setObjectName("subText")
+        dom_note.setWordWrap(True)
         form.addRow("매월 일", self._dom)
+        form.addRow("", dom_note)
 
         add_btn = QPushButton("추가")
         add_btn.clicked.connect(self._add_rule)
