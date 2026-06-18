@@ -853,6 +853,11 @@ class BubbleWidget(QWidget):
             return True
         return self._timer_panel is not None and self._timer_panel.isVisible()
 
+    def any_grid_visible(self) -> bool:
+        """그리드(말풍선 목록 또는 옆 패널)가 하나라도 떠 있는지 = '최소화 아님' 판정.
+        캐릭터 클릭 토글·메뉴·'할일 n개' 풍선이 공통으로 쓰는 단일 술어."""
+        return self.isVisible() or self.any_panel_visible()
+
     def _position_panels_detached(self) -> None:
         """✕로 목록만 닫았을 때 밀린할일·타이머 패널을 캐릭터 상단 중앙에 세로로 쌓는다.
         위 공간이 부족하면 캐릭터 아래로 내린다. 컬럼 모드와 달리 말풍선 높이에 묶이지 않는다."""

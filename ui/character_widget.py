@@ -364,11 +364,7 @@ class CharacterWidget(QWidget):
         timer_showing = (
             self._timer_bubble is not None and self._timer_bubble.isVisible()
         )
-        grids_hidden = (
-            self.isVisible()
-            and not self._bubble.isVisible()
-            and not self._bubble.any_panel_visible()
-        )
+        grids_hidden = self.isVisible() and not self._bubble.any_grid_visible()
         count = self._today_incomplete_count() if (on and grids_hidden) else 0
         if on and grids_hidden and not timer_showing and count > 0:
             tb.set_count(count)
@@ -507,7 +503,7 @@ class CharacterWidget(QWidget):
         - 무엇이든 떠 있으면(목록/밀린할일/타이머) 전부 숨김(최소화, 설정 유지)
         - 모두 숨겨져 있으면 '켜진' 그리드만 다시 표시(꺼진 그리드는 안 나옴)
         - 모든 그리드가 꺼져 있으면 전부 켠다(escape)."""
-        if self._bubble.isVisible() or self._bubble.any_panel_visible():
+        if self._bubble.any_grid_visible():
             if not self._working:  # 타이머 진행 중(정지 포함)이면 work/pause 이미지 유지
                 self._start_reaction("closed", _GRID_REACT_MS)  # 클릭 즉시 closed 이미지
             self._bubble.minimize_all()
@@ -629,7 +625,7 @@ class CharacterWidget(QWidget):
         """할일 목록 표시 토글(우클릭 메뉴): 목록 그리드 '상태'만 바꾼다.
         전체 최소화(아무 그리드도 안 보임) 상태에서는 화면 출력을 하지 않는다 —
         그리드 출력은 캐릭터 좌클릭 액션이 담당한다(#2). 그리드가 떠 있는 동안엔 즉시 반영."""
-        if not (self._bubble.isVisible() or self._bubble.any_panel_visible()):
+        if not self._bubble.any_grid_visible():
             self._settings.set_bool(policies.KEY_LIST_SHOW, on)
             return
         if on == self._bubble.isVisible():
