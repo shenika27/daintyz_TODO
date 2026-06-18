@@ -337,7 +337,7 @@ class CharacterWidget(QWidget):
 
     def _on_bubble_closed(self) -> None:
         """말풍선(그리드)이 닫혔을 때: 타이머 풍선 동기화 + 상황 갱신.
-        캐릭터 클릭 닫기는 이미 _toggle_bubble 에서 closed 리액션이 시작됐으므로
+        캐릭터 클릭 닫기는 이미 toggle_bubble 에서 closed 리액션이 시작됐으므로
         _refresh_situation 은 _reacting=True 중에는 자동으로 무시된다."""
         self._sync_timer_bubble()
         self._refresh_situation()
@@ -348,7 +348,7 @@ class CharacterWidget(QWidget):
 
     def _on_todo_bubble_clicked(self) -> None:
         """'할일 n개' 풍선 클릭: 그리드를 다시 연다(캐릭터 클릭과 동일)."""
-        self._toggle_bubble()
+        self.toggle_bubble()
 
     def _today_incomplete_count(self) -> int:
         today = date.today().isoformat()
@@ -372,7 +372,7 @@ class CharacterWidget(QWidget):
         count = self._today_incomplete_count() if (on and grids_hidden) else 0
         if on and grids_hidden and not timer_showing and count > 0:
             tb.set_count(count)
-            scr = self._screen_for(self.frameGeometry().center()).availableGeometry()
+            scr = self.available_geometry()
             tb.place_for(self.frameGeometry(), scr)
             tb.show()
             tb.raise_()
@@ -402,7 +402,7 @@ class CharacterWidget(QWidget):
             snap = self._timer.snapshot()
             if snap is not None:
                 tb.set_content(snap.content, snap.remaining_seconds)
-            scr = self._screen_for(self.frameGeometry().center()).availableGeometry()
+            scr = self.available_geometry()
             tb.place_for(self.frameGeometry(), scr)
             tb.show()
             tb.raise_()
@@ -459,7 +459,11 @@ class CharacterWidget(QWidget):
         s = QApplication.screenAt(pt)
         return s or QApplication.primaryScreen()
 
-    def _save_position(self) -> None:
+    def available_geometry(self):
+        """캐릭터가 놓인 화면의 가용 영역(작업표시줄 제외). 컨트롤러/내부 공용."""
+        return self.available_geometry()
+
+    def save_position(self) -> None:
         self._settings.set(policies.KEY_LAST_X, self.x())
         self._settings.set(policies.KEY_LAST_Y, self.y())
 
@@ -481,11 +485,11 @@ class CharacterWidget(QWidget):
         self.move(self._clamp(self._press_frame + delta))
         # 말풍선이 열려 있으면 같이 따라 이동 (뷰 재구성 없이 위치만)
         if self._bubble.isVisible():
-            scr = self._screen_for(self.frameGeometry().center()).availableGeometry()
+            scr = self.available_geometry()
             self._bubble.reposition_for_character(self.frameGeometry(), scr)
         else:
             # 닫힌 상태에서 드래그: ✕로 남긴 패널(캐릭터 상단)과 타이머 풍선이 함께 따라온다.
-            scr = self._screen_for(self.frameGeometry().center()).availableGeometry()
+            scr = self.available_geometry()
             self._bubble.reposition_detached_panels(self.frameGeometry(), scr)
             self._sync_timer_bubble()
 
@@ -493,12 +497,12 @@ class CharacterWidget(QWidget):
         if e.button() != Qt.MouseButton.LeftButton:
             return
         if self._moved:
-            self._save_position()
+            self.save_position()
         else:
-            self._toggle_bubble()
+            self.toggle_bubble()
         self._press_global = None
 
-    def _toggle_bubble(self) -> None:
+    def toggle_bubble(self) -> None:
         """캐릭터 클릭 = 그리드 전체 토글.
         - 무엇이든 떠 있으면(목록/밀린할일/타이머) 전부 숨김(최소화, 설정 유지)
         - 모두 숨겨져 있으면 '켜진' 그리드만 다시 표시(꺼진 그리드는 안 나옴)
@@ -523,7 +527,7 @@ class CharacterWidget(QWidget):
         timer_on = s.get_bool(policies.KEY_TIMER_PANEL, False)
         if not (list_on or overdue_on or timer_on):
             return  # 모두 꺼진 채로 종료했으면 최소화 상태 유지
-        scr = self._screen_for(self.frameGeometry().center()).availableGeometry()
+        scr = self.available_geometry()
         self._skip_open_reaction = True
         if list_on:
             self._bubble.show_for_character(self.frameGeometry(), scr)
@@ -542,7 +546,7 @@ class CharacterWidget(QWidget):
             self._events.overdue_panel_changed.emit(True)  # 핸들러가 설정 저장
             self._events.timer_panel_changed.emit(True)
             list_on = True  # show_for_character 가 KEY_LIST_SHOW=1 기록
-        scr = self._screen_for(self.frameGeometry().center()).availableGeometry()
+        scr = self.available_geometry()
         if list_on:
             self._bubble.show_for_character(self.frameGeometry(), scr)  # bubble_opened emit → open 리액션
         else:
@@ -630,7 +634,7 @@ class CharacterWidget(QWidget):
             return
         if on == self._bubble.isVisible():
             return
-        scr = self._screen_for(self.frameGeometry().center()).availableGeometry()
+        scr = self.available_geometry()
         if on:
             self._skip_open_reaction = True  # 우클릭 메뉴 → open 리액션 억제
             self._bubble.show_for_character(self.frameGeometry(), scr)
@@ -640,5 +644,5 @@ class CharacterWidget(QWidget):
         self._refresh_situation()
 
     def closeEvent(self, e) -> None:
-        self._save_position()
+        self.save_position()
         super().closeEvent(e)

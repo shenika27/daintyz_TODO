@@ -143,9 +143,7 @@ class AppController:
             self.character.show()
             self.character.raise_()
         if not self.bubble.isVisible():
-            scr = self.character._screen_for(
-                self.character.frameGeometry().center()
-            ).availableGeometry()
+            scr = self.character.available_geometry()
             self.bubble.show_for_character(self.character.frameGeometry(), scr)
         self.character.sync_timer_bubble()  # 말풍선 열렸으니 풍선 숨김
 
@@ -192,14 +190,12 @@ class AppController:
         self.events.timer_panel_changed.emit(on)
 
     def toggle_bubble(self) -> None:
-        self.character._toggle_bubble()
+        self.character.toggle_bubble()
 
     def go_today(self) -> None:
         self.bubble.go_today()
         if not self.bubble.isVisible():
-            scr = self.character._screen_for(
-                self.character.frameGeometry().center()
-            ).availableGeometry()
+            scr = self.character.available_geometry()
             self.bubble.show_for_character(self.character.frameGeometry(), scr)
         else:
             self.bubble.raise_()
@@ -216,7 +212,7 @@ class AppController:
             self.todo_count_bubble.hide()
             self.tray.hide()          # 트레이 잔상/지연 방지: 먼저 내림
             self.bubble.hide()
-            self.character._save_position()
+            self.character.save_position()
             self.character.hide()
         except Exception:  # noqa: BLE001
             log.exception("정리 중 오류")
