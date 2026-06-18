@@ -336,6 +336,8 @@ class SettingsDialog(QDialog):
             ("투두 목록 토글", policies.KEY_HOTKEY_TODO, policies.DEFAULT_HOTKEY_TODO),
             ("캐릭터 토글", policies.KEY_HOTKEY_CHARACTER, policies.DEFAULT_HOTKEY_CHARACTER),
             ("오늘로 이동", policies.KEY_HOTKEY_TODAY, policies.DEFAULT_HOTKEY_TODAY),
+            ("밀린할일 패널 토글", policies.KEY_HOTKEY_OVERDUE, policies.DEFAULT_HOTKEY_OVERDUE),
+            ("타이머 패널 토글", policies.KEY_HOTKEY_TIMER, policies.DEFAULT_HOTKEY_TIMER),
         ]
         self._hotkey_edits: dict[str, QKeySequenceEdit] = {}
         for label, key, default in self._hotkey_defs:

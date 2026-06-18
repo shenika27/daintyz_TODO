@@ -176,10 +176,20 @@ class AppController:
             (policies.KEY_HOTKEY_TODO, policies.DEFAULT_HOTKEY_TODO, self.toggle_bubble),
             (policies.KEY_HOTKEY_CHARACTER, policies.DEFAULT_HOTKEY_CHARACTER, self.toggle_character),
             (policies.KEY_HOTKEY_TODAY, policies.DEFAULT_HOTKEY_TODAY, self.go_today),
+            (policies.KEY_HOTKEY_OVERDUE, policies.DEFAULT_HOTKEY_OVERDUE, self.toggle_overdue),
+            (policies.KEY_HOTKEY_TIMER, policies.DEFAULT_HOTKEY_TIMER, self.toggle_timer_panel),
         ]
         for key, default, cb in specs:
             seq = s.get(key, default) or default
             self.hotkeys.register(seq, cb)
+
+    def toggle_overdue(self) -> None:
+        on = not self.settings_repo.get_bool(policies.KEY_OVERDUE_PANEL, True)
+        self.events.overdue_panel_changed.emit(on)
+
+    def toggle_timer_panel(self) -> None:
+        on = not self.settings_repo.get_bool(policies.KEY_TIMER_PANEL, False)
+        self.events.timer_panel_changed.emit(on)
 
     def toggle_bubble(self) -> None:
         self.character._toggle_bubble()
