@@ -401,7 +401,7 @@ class BubbleWidget(QWidget):
         # 주/월간은 항상, 일간은 오늘이 아닐 때만 '오늘로 이동' 노출(#1)
         self._today_btn.setVisible(
             self.view_mode in ("week", "month")
-            or (self.view_mode == "day" and not is_today)
+            or (self.view_mode == "day" and not self._title_is_today())
         )
         # 콘텐츠 기준 크기를 '최소'로 두고, 그 이상은 사용자가 우하단 그립으로 키운다.
         self._sizing = True
