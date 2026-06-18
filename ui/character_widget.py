@@ -502,6 +502,27 @@ class CharacterWidget(QWidget):
         else:
             self._restore_grids()
 
+    def restore_on_startup(self) -> None:
+        """앱 시작 시 이전 종료 시점의 그리드 상태 복원(open 리액션 없음).
+        KEY_LIST_SHOW 가 한 번도 저장된 적 없으면(완전 첫 실행) 세 그리드 모두 켠다."""
+        s = self._settings
+        if s.get(policies.KEY_LIST_SHOW) is None:
+            s.set(policies.KEY_LIST_SHOW, "1")
+            s.set(policies.KEY_OVERDUE_PANEL, "1")
+            s.set(policies.KEY_TIMER_PANEL, "1")
+        list_on = s.get_bool(policies.KEY_LIST_SHOW, False)
+        overdue_on = s.get_bool(policies.KEY_OVERDUE_PANEL, True)
+        timer_on = s.get_bool(policies.KEY_TIMER_PANEL, False)
+        if not (list_on or overdue_on or timer_on):
+            return  # 모두 꺼진 채로 종료했으면 최소화 상태 유지
+        scr = self._screen_for(self.frameGeometry().center()).availableGeometry()
+        self._skip_open_reaction = True
+        if list_on:
+            self._bubble.show_for_character(self.frameGeometry(), scr)
+        else:
+            self._bubble.show_detached_panels(self.frameGeometry(), scr)
+        self._sync_timer_bubble()
+
     def _restore_grids(self) -> None:
         """캐릭터 클릭으로 그리드 표시: 설정상 '켜짐'인 그리드만 보여준다(#2).
         모두 꺼져 있으면 전부 켠다(escape, #3). 설정 저장은 BubbleWidget 이 처리."""

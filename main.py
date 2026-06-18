@@ -29,6 +29,7 @@ from ui.bubble.bubble_widget import BubbleWidget
 from ui.character_widget import CharacterWidget
 from ui.settings_dialog import SettingsDialog
 from ui.timer_bubble import TimerBubble
+from ui.todo_count_bubble import TodoCountBubble
 from ui.tray import Tray
 
 log = logging.getLogger(__name__)
@@ -64,9 +65,10 @@ class AppController:
             self.todo_service, self.events, self.settings_repo, self.timer_service
         )
         self.timer_bubble = TimerBubble(self.events, self.settings_repo)
+        self.todo_count_bubble = TodoCountBubble(self.settings_repo)
         self.character = CharacterWidget(
             self.todo_service, self.events, self.settings_repo, self.bubble, self,
-            self.timer_service, self.timer_bubble,
+            self.timer_service, self.timer_bubble, self.todo_count_bubble,
         )
         self.tray = Tray(self)
         self.notification.set_tray(self.tray)
@@ -194,6 +196,7 @@ class AppController:
             self.notification.stop()
             self.timer_service.cancel()
             self.timer_bubble.hide()
+            self.todo_count_bubble.hide()
             self.tray.hide()          # 트레이 잔상/지연 방지: 먼저 내림
             self.bubble.hide()
             self.character._save_position()
@@ -214,6 +217,8 @@ class AppController:
         self.character.show()
         self.tray.show()
         self.notification.start()
+        # character.show() 이후 frameGeometry 가 확정되면 이전 그리드 상태 복원
+        QTimer.singleShot(0, self.character.restore_on_startup)
 
 
 class _WindowShowLogger:
@@ -245,12 +250,35 @@ class _WindowShowLogger:
         app.installEventFilter(self._filter)
 
 
+_SINGLE_INSTANCE_KEY = "character_todo_single_instance"
+
+
+def _acquire_single_instance():
+    """이미 실행 중인 인스턴스가 있으면 None 을 반환한다(중복 실행 차단, #1).
+    없으면 공유 메모리 핸들을 만들어 돌려준다 — 호출자가 프로세스 수명 동안 참조를
+    유지해야 잠금이 풀리지 않는다. Windows 는 프로세스 종료 시 자동 해제된다."""
+    from PyQt6.QtCore import QSharedMemory
+
+    shared = QSharedMemory(_SINGLE_INSTANCE_KEY)
+    if not shared.create(1):
+        return None
+    return shared
+
+
 def main() -> int:
     import os
 
     logging_config.setup_logging()
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)  # 트레이 상주: 창 닫혀도 종료 안 함
+
+    # 단일 인스턴스 보장: 중복 실행 시 캐릭터/그리드가 겹쳐 떠 '복제'처럼 보이는 문제 차단(#1).
+    _single = _acquire_single_instance()
+    if _single is None:
+        log.info("[SINGLE] 이미 실행 중 — 새 인스턴스 종료 (pid=%s)", os.getpid())
+        QMessageBox.information(None, "이미 실행 중", "캐릭터 투두가 이미 실행 중입니다.")
+        return 0
+    log.info("[SINGLE] 인스턴스 시작 (pid=%s)", os.getpid())
     # 툴팁 페이드/애니메이션 끄기 → 0.5초 뒤 즉시 표시
     app.setEffectEnabled(Qt.UIEffect.UI_FadeTooltip, False)
     app.setEffectEnabled(Qt.UIEffect.UI_AnimateTooltip, False)
