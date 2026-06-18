@@ -45,6 +45,13 @@ class AppController:
         self.recurring_repo = RecurringRepository(self.db)
         self.settings_repo = SettingsRepository(self.db)
 
+        # 저장된 폰트 서체 적용 (위젯 생성 전에 적용해야 전체 반영)
+        font_family = self.settings_repo.get(policies.KEY_FONT, "")
+        if font_family:
+            f = app.font()
+            f.setFamily(font_family)
+            app.setFont(f)
+
         # 이벤트 허브
         self.events = EventBus()
 

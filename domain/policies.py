@@ -7,6 +7,7 @@ from datetime import date, timedelta
 # 설정 키 상수 (오타 방지를 위해 한 곳에 모음)
 KEY_INCOMPLETE = "policy.incomplete"        # 'keep' | 'rollover'
 KEY_MONTH_OVERFLOW = "policy.month_overflow"  # 'skip' | 'clamp'
+KEY_FONT = "app.font"                        # 폰트 서체 패밀리명 (빈 문자열 = 시스템 기본)
 KEY_IMAGE_PATH = "character.image_path"            # 기본(오늘, 특이사항 없음)
 KEY_IMAGE_OVERDUE = "character.image_overdue"      # 이전 날짜 미달성 할일이 있을 때
 KEY_IMAGE_DELETE = "character.image_delete"        # 할일을 캐릭터에 끌어다 둘 때(삭제)

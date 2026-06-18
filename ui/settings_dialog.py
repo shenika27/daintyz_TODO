@@ -8,12 +8,14 @@ import logging
 from datetime import date
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QKeySequence
+from PyQt6.QtGui import QFont, QFontDatabase, QKeySequence
 from PyQt6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QComboBox,
     QDialog,
     QFileDialog,
+    QFontComboBox,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
@@ -173,6 +175,22 @@ class SettingsDialog(QDialog):
         )
         form.addRow("타이머 증감 간격", self._timer_step)
 
+        # 폰트 서체
+        font_row = QHBoxLayout()
+        self._font_combo = QFontComboBox()
+        self._font_combo.setWritingSystem(QFontDatabase.WritingSystem.Korean)
+        saved_font = self._settings.get(policies.KEY_FONT, "")
+        if saved_font:
+            self._font_combo.setCurrentFont(QFont(saved_font))
+        self._font_combo.currentFontChanged.connect(self._on_font_changed)
+        font_reset = QPushButton("기본")
+        font_reset.setFixedWidth(44)
+        font_reset.setToolTip("시스템 기본 폰트로 되돌리기")
+        font_reset.clicked.connect(self._reset_font)
+        font_row.addWidget(self._font_combo)
+        font_row.addWidget(font_reset)
+        form.addRow("폰트", font_row)
+
         # 테마
         self._theme = QComboBox()
         self._theme.addItem("자동 (시스템)", "system")
@@ -191,6 +209,14 @@ class SettingsDialog(QDialog):
             lambda on: self._settings.set(policies.KEY_TIMER_TRAY_SHOW, "1" if on else "0")
         )
         form.addRow("", self._timer_tray_cb)
+
+        # 최소화 시 '할일 n개' 풍선 표시
+        self._todo_bubble_cb = QCheckBox("최소화 시 '할일 n개' 풍선 표시")
+        self._todo_bubble_cb.setChecked(
+            self._settings.get_bool(policies.KEY_TODO_COUNT_BUBBLE, True)
+        )
+        self._todo_bubble_cb.toggled.connect(self._toggle_todo_bubble)
+        form.addRow("", self._todo_bubble_cb)
 
         # 팝업 열기/닫기 페이드 애니메이션
         self._anim_cb = QCheckBox("팝업 열기/닫기 애니메이션")
@@ -285,6 +311,17 @@ class SettingsDialog(QDialog):
         self._settings.set(key, path)
         self._events.character_image_changed.emit(path)
 
+    def _on_font_changed(self, font: QFont) -> None:
+        self._settings.set(policies.KEY_FONT, font.family())
+        f = QApplication.instance().font()
+        f.setFamily(font.family())
+        QApplication.instance().setFont(f)
+
+    def _reset_font(self) -> None:
+        self._settings.set(policies.KEY_FONT, "")
+        QApplication.instance().setFont(QFont())
+        self._font_combo.setCurrentFont(QApplication.instance().font())
+
     def _change_theme(self) -> None:
         self._settings.set(policies.KEY_THEME, self._theme.currentData())
         self._events.theme_changed.emit()
@@ -292,6 +329,10 @@ class SettingsDialog(QDialog):
     def _on_scale_changed(self, v: int) -> None:
         self._settings.set(policies.KEY_CHAR_SCALE, str(v))
         self._events.character_scale_changed.emit()
+
+    def _toggle_todo_bubble(self, on: bool) -> None:
+        self._settings.set(policies.KEY_TODO_COUNT_BUBBLE, "1" if on else "0")
+        self._events.todo_count_bubble_changed.emit(on)
 
     # ── 단축키 탭 ───────────────────────────────────────────
     def _build_shortcuts(self) -> QWidget:
