@@ -461,7 +461,7 @@ class CharacterWidget(QWidget):
 
     def available_geometry(self):
         """캐릭터가 놓인 화면의 가용 영역(작업표시줄 제외). 컨트롤러/내부 공용."""
-        return self.available_geometry()
+        return self._screen_for(self.frameGeometry().center()).availableGeometry()
 
     def save_position(self) -> None:
         self._settings.set(policies.KEY_LAST_X, self.x())
