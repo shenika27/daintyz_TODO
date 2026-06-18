@@ -60,6 +60,7 @@ class TodoService:
             return
         self._repo.add(content, iso)
         self._notify(iso)
+        self._events.todo_added.emit()
 
     def toggle(self, todo_id: int) -> None:
         t = self._repo.get(todo_id)

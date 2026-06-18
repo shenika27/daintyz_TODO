@@ -20,6 +20,7 @@ KEY_OVERDUE_PANEL_SIDE = "bubble.overdue_panel_side"  # 'right' | 'left'
 KEY_IMAGE_IDLE = "character.image_idle"            # 비활성 상태(마지막 활동 n시간 초과)
 KEY_IDLE_HOURS = "character.idle_hours"            # 비활성 판정 기준 시간 (0=비활성화)
 KEY_IMAGE_DONE = "character.image_done"            # 할일 완료 리액션
+KEY_IMAGE_ADD = "character.image_add"              # 할일 추가 리액션
 KEY_IMAGE_WORK = "character.image_work"            # 타이머 실행 중
 KEY_IMAGE_PAUSE = "character.image_pause"          # 타이머 정지(일시정지) 중
 KEY_IMAGE_TIMER_DONE = "character.image_timer_done"  # 타이머 완료(만료) 리액션

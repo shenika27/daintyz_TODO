@@ -88,6 +88,7 @@ class SettingsDialog(QDialog):
         ("타이머 완료", policies.KEY_IMAGE_TIMER_DONE, "character_timer_done"),
         ("목록 열림", policies.KEY_IMAGE_OPEN, "character_open"),
         ("목록 닫힘", policies.KEY_IMAGE_CLOSED, "character_closed"),
+        ("할일 추가 리액션", policies.KEY_IMAGE_ADD, "character_add"),
     ]
 
     # ── 이미지 탭 ───────────────────────────────────────────

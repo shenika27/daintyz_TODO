@@ -23,6 +23,8 @@ class EventBus(QObject):
     timer_panel_changed = pyqtSignal(bool)
     # 할일을 '완료'로 체크한 순간(캐릭터 완료 리액션용)
     todo_completed = pyqtSignal()
+    # 할일이 새로 추가된 순간(캐릭터 추가 리액션용)
+    todo_added = pyqtSignal()
     # 캐릭터 크기(%)가 바뀌었을 때
     character_scale_changed = pyqtSignal()
     # 글로벌 단축키 설정이 바뀌었을 때(재등록 트리거)
@@ -43,3 +45,5 @@ class EventBus(QObject):
     bubble_closed = pyqtSignal()
     # 말풍선(투두)이 열렸을 때 — 캐릭터 목록-열림 이미지 전환 트리거
     bubble_opened = pyqtSignal()
+    # '할일 n개' 풍선 표시 설정이 바뀌었을 때 (True=표시) — 즉시 동기화 트리거
+    todo_count_bubble_changed = pyqtSignal(bool)

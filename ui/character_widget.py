@@ -44,6 +44,7 @@ _FALLBACK_BASE = {
     "timer_done": "character_timer_done",
     "open": "character_open",
     "closed": "character_closed",
+    "add": "character_add",
 }
 _REACTION_MS = 3000       # 완료(done) 리액션 표시 시간
 _TIMER_DONE_MS = 3000     # 타이머 만료(timer_done) 리액션 표시 시간
@@ -62,6 +63,7 @@ _IMAGE_KEYS = {
     "timer_done": policies.KEY_IMAGE_TIMER_DONE,
     "open": policies.KEY_IMAGE_OPEN,
     "closed": policies.KEY_IMAGE_CLOSED,
+    "add": policies.KEY_IMAGE_ADD,
 }
 
 
@@ -119,6 +121,7 @@ class CharacterWidget(QWidget):
         self._events.todos_changed.connect(lambda _iso: self._refresh_situation())
         self._events.todos_changed.connect(lambda _iso: self._sync_todo_count_bubble())
         self._events.todo_completed.connect(self._on_todo_completed)
+        self._events.todo_added.connect(self._on_todo_added)
         self._events.delete_undo_available.connect(self._on_undo_available)
         if self._timer is not None:
             self._events.timer_started.connect(self._on_timer_started)
@@ -281,6 +284,14 @@ class CharacterWidget(QWidget):
         if self._reacting and self._react_sit == "timer_done":
             return  # timer_done 우선
         self._start_reaction("done", _REACTION_MS)
+
+    def _on_todo_added(self) -> None:
+        """할일 추가 순간: add 이미지를 잠깐. 타이머 진행 중이거나 done 리액션 중엔 생략."""
+        if self._working:
+            return
+        if self._reacting:
+            return
+        self._start_reaction("add", _REACTION_MS)
 
     def _end_reaction(self) -> None:
         self._reacting = False
