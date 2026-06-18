@@ -247,14 +247,19 @@ class CharacterWidget(QWidget):
         self._idle = self._service.is_idle(hours)
         if self._situation == "delete" or self._reacting:
             return  # 드래그/리액션 중에는 덮어쓰지 않음
+        self._set_situation(self._priority_situation())
+
+    def _priority_situation(self) -> str:
+        """현재 플래그 기준 기본 상황을 우선순위대로 결정:
+        work/pause(타이머) > overdue > idle > default.
+        delete·리액션 등 일시 상태는 호출 측에서 가드한다."""
         if self._working:
-            self._set_situation("pause" if self._paused else "work")
-        elif self._overdue:
-            self._set_situation("overdue")
-        elif self._idle:
-            self._set_situation("idle")
-        else:
-            self._set_situation("default")
+            return "pause" if self._paused else "work"
+        if self._overdue:
+            return "overdue"
+        if self._idle:
+            return "idle"
+        return "default"
 
     def _has_image(self, sit: str) -> bool:
         return self._pixmaps.get(sit) is not None or self._movies.get(sit) is not None
@@ -570,14 +575,8 @@ class CharacterWidget(QWidget):
         self._restore_situation()  # 삭제 후 overdue/default 로 복귀
 
     def _restore_situation(self) -> None:
-        if self._working:
-            self._set_situation("pause" if self._paused else "work")
-        elif self._overdue:
-            self._set_situation("overdue")
-        elif self._idle:
-            self._set_situation("idle")
-        else:
-            self._set_situation("default")
+        """delete/리액션 등 일시 상태 종료 후 기본 상황으로 복귀."""
+        self._set_situation(self._priority_situation())
 
     # ── 우클릭 메뉴 ─────────────────────────────────────────
     def _show_menu(self, global_pos: QPoint) -> None:
