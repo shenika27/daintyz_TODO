@@ -1,10 +1,12 @@
 ; installer.iss — Inno Setup 설치 스크립트 (Windows .exe 설치본 생성)
-; 선택 단계: 단일 exe(dist\CharacterTodo.exe)를 설치본으로 감쌀 때만 사용.
-; 기본 배포는 dist\CharacterTodo.exe 하나만 전달하면 되며 이 단계는 불필요하다.
-; 사전: PyInstaller(onefile)로 dist\CharacterTodo.exe 가 만들어져 있어야 함.
+; onedir 빌드(dist\CharacterTodo\ 폴더)를 통째로 감싸 설치본(dist\CharacterTodo-Setup-*.exe)을 만든다.
+; 사전: PyInstaller(onedir)로 dist\CharacterTodo\ 폴더가 만들어져 있어야 함.
+; 버전은 build.bat 가 /DAppVersion=... 으로 넘긴다(없으면 아래 기본값 사용).
 
 #define AppName "Character TODO"
-#define AppVersion "0.3.0"
+#ifndef AppVersion
+  #define AppVersion "0.4.3"
+#endif
 #define AppExe "CharacterTodo.exe"
 
 [Setup]
@@ -13,7 +15,7 @@ AppVersion={#AppVersion}
 DefaultDirName={autopf}\CharacterTodo
 DefaultGroupName=Character TODO
 DisableProgramGroupPage=yes
-OutputDir=installer_out
+OutputDir=..\dist
 OutputBaseFilename=CharacterTodo-Setup-{#AppVersion}
 Compression=lzma2
 SolidCompression=yes
@@ -28,7 +30,8 @@ Name: "desktopicon"; Description: "바탕화면 바로가기 생성"; GroupDescr
 Name: "autostart"; Description: "로그인 시 자동 시작"; GroupDescription: "추가 작업:"; Flags: unchecked
 
 [Files]
-Source: "..\dist\CharacterTodo.exe"; DestDir: "{app}"; Flags: ignoreversion
+; onedir 폴더 전체를 설치 폴더로 복사(하위 폴더 포함)
+Source: "..\dist\CharacterTodo\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "uninstall_all.bat"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
