@@ -28,7 +28,7 @@ class TodoCountBubble(FloatingBubble):
         v.setSpacing(0)
 
         self._label = QLabel("할일 0개")
-        self._label.setObjectName("tbTime")
+        self._label.setObjectName("tcCount")
         self._label.setAlignment(Qt.AlignmentFlag.AlignHCenter)
         f = self._label.font()
         f.setBold(True)
@@ -43,7 +43,7 @@ class TodoCountBubble(FloatingBubble):
         c = theme.palette(self._settings.get(policies.KEY_THEME, "system"))
         self.setStyleSheet(
             self._chrome_theme()
-            + f"#bubbleRootMini QLabel#tbTime {{ color: {c['accent_text']}; }}"
+            + f"#bubbleRootMini QLabel#tcCount {{ color: {c['accent_text']}; }}"
         )
         self.update()
 
