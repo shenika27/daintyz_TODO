@@ -1,0 +1,93 @@
+<svg viewBox="0 0 780 560" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, system-ui, sans-serif">
+  <title>EventBus 중심 신호 흐름</title>
+  <desc>발행자(Service·설정창)가 EventBus에 신호를 쏘면, 구독자(캐릭터·말풍선·패널·main)가 각자 듣고 화면을 갱신한다. 부품끼리 직접 호출하지 않는다.</desc>
+
+  <style>
+    .box { fill:#ffffff; stroke:#d0d0d0; stroke-width:1.5; }
+    .hub { fill:#3b6ea5; stroke:none; }
+    .ttl { fill:#1a1a1a; font-size:13px; font-weight:700; }
+    .sub { fill:#666666; font-size:10.5px; }
+    .hubttl { fill:#ffffff; font-size:15px; font-weight:700; }
+    .hubsub { fill:#ffffff; font-size:10.5px; opacity:.9; }
+    .lbl { fill:#666666; font-size:10px; font-style:italic; }
+    .wire { stroke:#c2c2c2; stroke-width:1.5; fill:none; }
+    .emitwire { stroke:#3b6ea5; stroke-width:1.5; fill:none; }
+    .sec { fill:#888888; font-size:11px; font-weight:700; letter-spacing:.05em; }
+  </style>
+
+  <rect x="0" y="0" width="780" height="560" fill="#ffffff"/>
+
+  <defs>
+    <marker id="ah" markerWidth="8" markerHeight="8" refX="6.5" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#3b6ea5"/>
+    </marker>
+    <marker id="ahg" markerWidth="8" markerHeight="8" refX="6.5" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#c2c2c2"/>
+    </marker>
+  </defs>
+
+  <text class="sec" x="100" y="36" text-anchor="middle">발행자 (emit)</text>
+  <text class="sec" x="390" y="36" text-anchor="middle">EventBus</text>
+  <text class="sec" x="680" y="36" text-anchor="middle">구독자 (connect)</text>
+
+  <g>
+    <rect class="box" x="20" y="70" width="160" height="56" rx="10"/>
+    <text class="ttl" x="34" y="94">TodoService</text>
+    <text class="sub" x="34" y="112">추가·완료·삭제·이동</text>
+
+    <rect class="box" x="20" y="150" width="160" height="56" rx="10"/>
+    <text class="ttl" x="34" y="174">TimerService</text>
+    <text class="sub" x="34" y="192">매초 tick·시작·만료</text>
+
+    <rect class="box" x="20" y="230" width="160" height="56" rx="10"/>
+    <text class="ttl" x="34" y="254">SettingsDialog</text>
+    <text class="sub" x="34" y="272">테마·이미지·단축키</text>
+
+    <rect class="box" x="20" y="310" width="160" height="56" rx="10"/>
+    <text class="ttl" x="34" y="334">main / 단축키</text>
+    <text class="sub" x="34" y="352">자정 넘김·전역키</text>
+  </g>
+
+  <rect class="hub" x="320" y="180" width="140" height="150" rx="14"/>
+  <text class="hubttl" x="390" y="232" text-anchor="middle">EventBus</text>
+  <text class="hubsub" x="390" y="254" text-anchor="middle">신호 게시판</text>
+  <text class="hubsub" x="390" y="272" text-anchor="middle">core/events.py</text>
+  <text class="hubsub" x="390" y="294" text-anchor="middle">발행↔구독 중개</text>
+
+  <g>
+    <rect class="box" x="600" y="70" width="160" height="56" rx="10"/>
+    <text class="ttl" x="614" y="94">CharacterWidget</text>
+    <text class="sub" x="614" y="112">상황·리액션 이미지</text>
+
+    <rect class="box" x="600" y="150" width="160" height="56" rx="10"/>
+    <text class="ttl" x="614" y="174">BubbleWidget</text>
+    <text class="sub" x="614" y="192">목록 다시 그림</text>
+
+    <rect class="box" x="600" y="230" width="160" height="56" rx="10"/>
+    <text class="ttl" x="614" y="254">밀린할일·타이머패널</text>
+    <text class="sub" x="614" y="272">패널·타이머풍선</text>
+
+    <rect class="box" x="600" y="310" width="160" height="56" rx="10"/>
+    <text class="ttl" x="614" y="334">main</text>
+    <text class="sub" x="614" y="352">트레이 알림·자동완료</text>
+  </g>
+
+  <path class="emitwire" marker-end="url(#ah)" d="M180,98 C250,98 270,205 318,205"/>
+  <path class="emitwire" marker-end="url(#ah)" d="M180,178 C250,178 280,220 318,225"/>
+  <path class="emitwire" marker-end="url(#ah)" d="M180,258 C250,258 280,270 318,265"/>
+  <path class="emitwire" marker-end="url(#ah)" d="M180,338 C250,338 270,300 318,295"/>
+
+  <path class="wire" marker-end="url(#ahg)" d="M462,205 C520,205 540,98 598,98"/>
+  <path class="wire" marker-end="url(#ahg)" d="M462,225 C520,225 545,178 598,178"/>
+  <path class="wire" marker-end="url(#ahg)" d="M462,265 C520,265 545,258 598,258"/>
+  <path class="wire" marker-end="url(#ahg)" d="M462,295 C520,295 540,338 598,338"/>
+
+  <line x1="20" y1="410" x2="760" y2="410" stroke="#e2e2e2" stroke-width="1"/>
+  <text class="lbl" x="20" y="438" font-style="normal" font-weight="700" fill="#1a1a1a">핵심: 왼쪽은 오른쪽을 모른다.</text>
+  <text class="lbl" x="20" y="458">TodoService 는 "할일 추가됨" 신호만 쏠 뿐, 캐릭터·말풍선의 존재를 모른다 — 이게 느슨한 결합.</text>
+
+  <text class="lbl" x="20" y="490" font-style="normal" font-weight="700" fill="#3b6ea5">예시 — 할일 추가:</text>
+  <text class="lbl" x="20" y="510">InputBar → TodoService.add() → DB INSERT → todos_changed·todo_added 발행</text>
+  <text class="lbl" x="20" y="528">→ 말풍선(목록 갱신) · 캐릭터(밀린할일 재계산 + '추가' 리액션) 가 각자 수신</text>
+  <text class="lbl" x="20" y="548" fill="#888888">추적법: 신호이름.emit / .connect 를 전체검색하면 발행처·수신처가 보인다.</text>
+</svg>
