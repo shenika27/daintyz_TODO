@@ -9,6 +9,7 @@ import sys
 from datetime import date
 
 from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import QApplication, QMessageBox
 
 from core import logging_config
@@ -50,6 +51,10 @@ class AppController:
         if font_family:
             f = app.font()
             f.setFamily(font_family)
+            # 폰트가 작은 크기에서 AA를 끄도록 힌팅돼 있어도 강제로 매끄럽게 렌더링
+            f.setStyleStrategy(QFont.StyleStrategy.PreferAntialias)
+            # 힌팅이 획을 픽셀 격자에 억지로 맞추며 두께가 들쭉날쭉해지는 것 방지
+            f.setHintingPreference(QFont.HintingPreference.PreferNoHinting)
             app.setFont(f)
 
         # 이벤트 허브

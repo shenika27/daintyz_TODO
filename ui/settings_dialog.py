@@ -305,6 +305,10 @@ class SettingsDialog(QDialog):
         self._settings.set(policies.KEY_FONT, font.family())
         f = QApplication.instance().font()
         f.setFamily(font.family())
+        # 폰트가 작은 크기에서 AA를 끄도록 힌팅돼 있어도 강제로 매끄럽게 렌더링
+        f.setStyleStrategy(QFont.StyleStrategy.PreferAntialias)
+        # 힌팅이 획을 픽셀 격자에 억지로 맞추며 두께가 들쭉날쭉해지는 것 방지
+        f.setHintingPreference(QFont.HintingPreference.PreferNoHinting)
         QApplication.instance().setFont(f)
         self._events.theme_changed.emit()
 
