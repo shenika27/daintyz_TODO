@@ -181,6 +181,7 @@ class AppController:
             (policies.KEY_HOTKEY_TODAY, policies.DEFAULT_HOTKEY_TODAY, self.go_today),
             (policies.KEY_HOTKEY_OVERDUE, policies.DEFAULT_HOTKEY_OVERDUE, self.toggle_overdue),
             (policies.KEY_HOTKEY_TIMER, policies.DEFAULT_HOTKEY_TIMER, self.toggle_timer_panel),
+            (policies.KEY_HOTKEY_UNDO, policies.DEFAULT_HOTKEY_UNDO, self.todo_service.undo_remove),
         ]
         for key, default, cb in specs:
             seq = s.get(key, default) or default

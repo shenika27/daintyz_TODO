@@ -40,6 +40,9 @@ KEY_BUBBLE_ANIMATION = "app.bubble_animation"      # '0' | '1' — 팝업 열기
 KEY_TIMER_AUTO_COMPLETE = "timer.auto_complete"    # '0' | '1' — 타이머 완료 시 할일 자동 완료
 KEY_TIMER_STEP = "timer.adjust_step"               # 타이머 −/+ 증감 간격(초). 1분 미만은 항상 5초 고정.
 KEY_TODO_COUNT_BUBBLE = "bubble.todo_count_bubble"  # '0' | '1' — 최소화 시 '할일 n개' 풍선 표시
+KEY_ALWAYS_ON_TOP = "app.always_on_top"      # '0' | '1' — 캐릭터/그리드 항상 위 표시
+KEY_CHARACTER_POSITION_LOCKED = "character.position_locked"  # '0' | '1' — 캐릭터 드래그 이동 잠금
+KEY_HOTKEY_UNDO = "hotkey.undo_remove"       # 삭제 되돌리기
 
 DEFAULT_TIMER_STEP = 60   # 타이머 증감 간격 기본값(1분)
 DEFAULT_STANDALONE_SECONDS = 25 * 60  # 일반(상시) 타이머 기본 시간(25분)
@@ -50,6 +53,7 @@ DEFAULT_HOTKEY_CHARACTER = "Ctrl+Shift+C"
 DEFAULT_HOTKEY_TODAY = "Ctrl+Shift+U"
 DEFAULT_HOTKEY_OVERDUE = "Ctrl+Shift+O"
 DEFAULT_HOTKEY_TIMER = "Ctrl+Shift+P"
+DEFAULT_HOTKEY_UNDO = "Ctrl+Shift+Z"
 
 
 WEEKDAYS_KR = ["일", "월", "화", "수", "목", "금", "토"]

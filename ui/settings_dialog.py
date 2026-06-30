@@ -5,7 +5,9 @@
 from __future__ import annotations
 
 import logging
+import shutil
 from datetime import date
+from pathlib import Path
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont, QFontDatabase, QKeySequence
@@ -99,8 +101,13 @@ class SettingsDialog(QDialog):
         intro.setObjectName("subText")
         intro.setWordWrap(True)
         form.addRow(intro)
+        self._image_edits: dict[str, QLineEdit] = {}
         for name, key, base in self._IMAGE_ROWS:
             self._add_image_row(form, name, key, base)
+        save = QPushButton("이미지 저장")
+        save.setToolTip("현재 설정된 이미지 파일을 앱 데이터 폴더에 복사해 원본 삭제에 대비합니다.")
+        save.clicked.connect(self._save_custom_images)
+        form.addRow(save)
         return w
 
     # ── 일반 탭 ─────────────────────────────────────────────
@@ -278,6 +285,7 @@ class SettingsDialog(QDialog):
     def _add_image_row(self, form: QFormLayout, name: str, key: str, base: str) -> None:
         edit = QLineEdit(self._settings.get(key, "") or "")
         edit.editingFinished.connect(lambda: self._apply_image(key, edit.text().strip(), edit))
+        self._image_edits[key] = edit
         browse = QPushButton("찾아보기")
         browse.clicked.connect(lambda: self._pick_image(key, edit))
         clear = QPushButton("지움")
@@ -300,6 +308,70 @@ class SettingsDialog(QDialog):
         edit.setText(path)
         self._settings.set(key, path)
         self._events.character_image_changed.emit(path)
+
+    def _save_custom_images(self) -> None:
+        from core import paths
+
+        dest_dir = paths.app_data_dir() / "character_images"
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        saved = 0
+        failed: list[str] = []
+
+        for name, key, base in self._IMAGE_ROWS:
+            edit = self._image_edits.get(key)
+            raw = (
+                edit.text() if edit is not None else self._settings.get(key, "") or ""
+            ).strip()
+            if not raw:
+                continue
+            src = Path(raw)
+            if not src.is_file():
+                failed.append(f"{name}: 파일 없음")
+                continue
+            ext = src.suffix.lower()
+            if not ext:
+                failed.append(f"{name}: 확장자 없음")
+                continue
+
+            slug = base.removeprefix("character_")
+            dest = dest_dir / f"{slug}{ext}"
+            tmp = dest_dir / f".{slug}{ext}.tmp"
+
+            try:
+                same_file = src.resolve() == dest.resolve()
+            except OSError:
+                same_file = False
+
+            try:
+                if not same_file:
+                    shutil.copy2(src, tmp)
+                for old in dest_dir.glob(f"{slug}.*"):
+                    if old == dest or old == tmp:
+                        continue
+                    old.unlink()
+                if not same_file:
+                    tmp.replace(dest)
+                    saved += 1
+                self._settings.set(key, str(dest))
+                if edit is not None:
+                    edit.setText(str(dest))
+            except Exception as ex:  # noqa: BLE001
+                try:
+                    if tmp.exists():
+                        tmp.unlink()
+                except Exception:  # noqa: BLE001
+                    pass
+                failed.append(f"{name}: {ex}")
+
+        self._events.character_image_changed.emit("")
+        if failed:
+            QMessageBox.warning(
+                self,
+                "이미지 저장",
+                f"{saved}개 이미지를 저장했습니다.\n\n실패:\n" + "\n".join(failed),
+            )
+        else:
+            QMessageBox.information(self, "이미지 저장", f"{saved}개 이미지를 저장했습니다.")
 
     def _on_font_changed(self, font: QFont) -> None:
         self._settings.set(policies.KEY_FONT, font.family())
@@ -344,6 +416,7 @@ class SettingsDialog(QDialog):
             ("오늘로 이동", policies.KEY_HOTKEY_TODAY, policies.DEFAULT_HOTKEY_TODAY),
             ("밀린할일 패널 토글", policies.KEY_HOTKEY_OVERDUE, policies.DEFAULT_HOTKEY_OVERDUE),
             ("타이머 패널 토글", policies.KEY_HOTKEY_TIMER, policies.DEFAULT_HOTKEY_TIMER),
+            ("삭제 되돌리기", policies.KEY_HOTKEY_UNDO, policies.DEFAULT_HOTKEY_UNDO),
         ]
         self._hotkey_edits: dict[str, QKeySequenceEdit] = {}
         for label, key, default in self._hotkey_defs:

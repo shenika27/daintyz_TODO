@@ -66,7 +66,23 @@ echo     -^> character change DISABLED (fixed default image)
 echo [4/7] Running PyInstaller (onedir + onefile)
 set "PI_CLEAN="
 if defined CLEAN set "PI_CLEAN=--clean"
-pyinstaller --noconfirm !PI_CLEAN! build\character_todo.spec 1>>"%LOG%" 2>>&1
+set "PYINSTALLER_CMD="
+set "PYINSTALLER_ARGS="
+if exist ".venv\Scripts\python.exe" (
+    set "PYINSTALLER_CMD=.venv\Scripts\python.exe"
+    set "PYINSTALLER_ARGS=-m PyInstaller"
+)
+if not defined PYINSTALLER_CMD (
+    where pyinstaller >nul 2>nul
+    if not errorlevel 1 set "PYINSTALLER_CMD=pyinstaller"
+)
+if defined PYINSTALLER_CMD (
+    echo Using PyInstaller: !PYINSTALLER_CMD! !PYINSTALLER_ARGS! >> "%LOG%"
+    "!PYINSTALLER_CMD!" !PYINSTALLER_ARGS! --noconfirm !PI_CLEAN! build\character_todo.spec 1>>"%LOG%" 2>>&1
+) else (
+    echo PyInstaller not found. See dependency installation output above. >> "%LOG%"
+    exit /b 1
+)
 if errorlevel 1 (
     echo PyInstaller build failed. See %LOG%
     goto :fail

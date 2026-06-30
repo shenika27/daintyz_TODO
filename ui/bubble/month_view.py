@@ -9,11 +9,12 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QSize, Qt
 from PyQt6.QtWidgets import (
     QFrame,
     QGridLayout,
     QLabel,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -21,7 +22,10 @@ from PyQt6.QtWidgets import (
 from domain import policies
 from ui.bubble.todo_item import MIME_TODO
 
-CELL = 58  # 정사각형 셀 한 변(px)
+CELL = 58  # 월간 셀 기본 한 변(px)
+MIN_CELL = 34
+COLS = 7
+ROWS = 6
 
 
 def _count_text(label: str, n: int) -> str:
@@ -34,6 +38,7 @@ def _stat_badge(obj_name: str, text: str) -> QLabel:
     lbl = QLabel(text)
     lbl.setObjectName(obj_name)
     lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    lbl.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
     return lbl
 
 
@@ -47,10 +52,12 @@ class MonthCell(QFrame):
         self._open_day_cb = open_day_cb
         self.setObjectName("monthCell")
         self.setProperty("selected", "true" if selected else "false")
-        self.setFixedSize(CELL, CELL)
+        self.setMinimumSize(MIN_CELL, MIN_CELL)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.setAcceptDrops(True)
 
         lay = QVBoxLayout(self)
+        self._layout = lay
         lay.setContentsMargins(4, 3, 4, 3)
         lay.setSpacing(2)
         lay.setAlignment(Qt.AlignmentFlag.AlignTop)
@@ -61,6 +68,8 @@ class MonthCell(QFrame):
         f = head.font()
         f.setPointSize(max(7, f.pointSize() - 2))
         head.setFont(f)
+        self._head = head
+        self._badge_labels: list[QLabel] = []
         lay.addWidget(head)
 
         # '할일' 배지 = 아직 안 한(밀린) 할일 = 전체 − 완료, '완료' 배지 = 완료 수
@@ -69,12 +78,46 @@ class MonthCell(QFrame):
             badges = QVBoxLayout()
             badges.setContentsMargins(0, 0, 0, 0)
             badges.setSpacing(2)
-            badges.setAlignment(Qt.AlignmentFlag.AlignHCenter)
             if remaining > 0:
-                badges.addWidget(_stat_badge("badgeTotal", _count_text("할일", remaining)))
+                badge = _stat_badge("badgeTotal", _count_text("할일", remaining))
+                badges.addWidget(badge)
+                self._badge_labels.append(badge)
             if done > 0:
-                badges.addWidget(_stat_badge("badgeDone", _count_text("완료", done)))
+                badge = _stat_badge("badgeDone", _count_text("완료", done))
+                badges.addWidget(badge)
+                self._badge_labels.append(badge)
             lay.addLayout(badges)
+        self._sync_metrics()
+
+    def resizeEvent(self, e) -> None:
+        super().resizeEvent(e)
+        self._sync_metrics()
+
+    def _sync_metrics(self) -> None:
+        w = max(MIN_CELL, self.width())
+        h = max(MIN_CELL, self.height())
+        mx = max(4, min(10, w // 18))
+        my = max(3, min(8, h // 22))
+        gap = max(2, min(6, h // 28))
+        self._layout.setContentsMargins(mx, my, mx, my)
+        self._layout.setSpacing(gap)
+
+        head_font = self._head.font()
+        head_font.setPointSize(max(7, min(13, h // 8)))
+        self._head.setFont(head_font)
+
+        badge_h = max(13, min(26, h // 5))
+        badge_px = max(9, min(15, h // 8))
+        badge_pad_x = max(4, min(10, w // 22))
+        badge_radius = max(4, min(8, badge_h // 3))
+        for badge in self._badge_labels:
+            badge.setMinimumWidth(24)
+            badge.setFixedHeight(badge_h)
+            badge.setStyleSheet(
+                f"font-size: {badge_px}px; "
+                f"padding: 0px {badge_pad_x}px; "
+                f"border-radius: {badge_radius}px;"
+            )
 
     def mousePressEvent(self, _e) -> None:
         self._select_cb(self.iso)
@@ -118,8 +161,11 @@ class MonthView(QWidget):
         lay = QGridLayout(self)
         lay.setContentsMargins(4, 4, 4, 4)
         lay.setSpacing(3)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
-        for c in range(7):
+        for c in range(COLS):
+            lay.setColumnMinimumWidth(c, MIN_CELL)
+            lay.setColumnStretch(c, 1)
             wd = QLabel(policies.WEEKDAYS_KR[c])
             wd.setObjectName("wdHead")
             wd.setAlignment(Qt.AlignmentFlag.AlignHCenter)
@@ -128,7 +174,12 @@ class MonthView(QWidget):
             wd.setFont(f)
             lay.addWidget(wd, 0, c)
 
-        for i in range(42):
+        lay.setRowStretch(0, 0)
+        for r in range(ROWS):
+            lay.setRowMinimumHeight(r + 1, MIN_CELL)
+            lay.setRowStretch(r + 1, 1)
+
+        for i in range(COLS * ROWS):
             d = grid_start + timedelta(days=i)
             iso = d.isoformat()
             total, done = counts.get(iso, (0, 0))
@@ -136,4 +187,10 @@ class MonthView(QWidget):
                 d, anchor.month, iso == selected_iso,
                 total, done, service, select_cb, open_day_cb,
             )
-            lay.addWidget(cell, 1 + i // 7, i % 7, Qt.AlignmentFlag.AlignCenter)
+            lay.addWidget(cell, 1 + i // COLS, i % COLS)
+
+    def sizeHint(self) -> QSize:
+        return QSize(CELL * COLS + 32, CELL * ROWS + 36)
+
+    def minimumSizeHint(self) -> QSize:
+        return QSize(MIN_CELL * COLS + 32, MIN_CELL * ROWS + 36)

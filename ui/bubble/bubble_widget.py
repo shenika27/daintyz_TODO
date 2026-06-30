@@ -44,8 +44,9 @@ from ui.bubble.input_bar import InputBar
 from ui.bubble.month_view import MonthView
 from ui.bubble.overdue_panel import PANEL_WIDTH, OverduePanel
 from ui.bubble.timer_panel import TimerPanel
+from ui.bubble.todo_item import TodoItem
 from ui.bubble.week_view import WeekView
-from ui.qt_helpers import make_overlay_window
+from ui.qt_helpers import make_overlay_window, set_overlay_always_on_top
 
 class _ClickableLabel(QLabel):
     """클릭하면 콜백을 호출하는 제목 라벨(날짜 인풋박스 열기용, #4)."""
@@ -175,6 +176,12 @@ class BubbleWidget(QWidget):
     def apply_theme(self) -> None:
         mode = self._settings.get(policies.KEY_THEME, "system")
         self.setStyleSheet(theme.qss(mode))
+
+    def set_always_on_top(self, on: bool) -> None:
+        set_overlay_always_on_top(self, on)
+        set_overlay_always_on_top(self._overdue_panel, on)
+        if self._timer_panel is not None:
+            set_overlay_always_on_top(self._timer_panel, on)
 
     # ── 헤더 ────────────────────────────────────────────────
     def _build_header(self, target_layout) -> None:
@@ -676,10 +683,9 @@ class BubbleWidget(QWidget):
         self.resize(max(w, self.minimumWidth()), max(h, self.minimumHeight()))
 
     def _update_min_height(self) -> None:
-        """모드별 최소 높이 = 지금까지 측정한 minimumSizeHint 의 최댓값.
-        (QScrollArea 가 콘텐츠 많을 때 동기 측정에서 과소 보고하는 것을 흡수)"""
+        """모드별 최소 높이 = 현재 레이아웃의 minimumSizeHint."""
         mh = self.minimumSizeHint().height()
-        self._min_h[self.view_mode] = max(self._min_h.get(self.view_mode, 0), mh)
+        self._min_h[self.view_mode] = mh
         self.setMinimumSize(_WIDTH[self.view_mode], self._min_h[self.view_mode])
 
     def _finalize_size(self) -> None:
@@ -738,6 +744,7 @@ class BubbleWidget(QWidget):
     def resizeEvent(self, e) -> None:
         super().resizeEvent(e)
         self._update_grip()
+        QTimer.singleShot(0, self._refresh_todo_text_layouts)
         # 드래그 중에는 위치를 QSizeGrip 에 맡긴다(그립이 캐릭터 반대편 코너에 있어
         # 대각선=캐릭터 쪽 코너가 고정됨). move()/저장은 release 에서 1회만 → 떨림 제거.
         if self._user_resizing:
@@ -745,6 +752,10 @@ class BubbleWidget(QWidget):
         # 드래그가 아닌 비프로그램적 리사이즈(드물게): 기존처럼 저장만(재배치는 _reposition 경로가 담당)
         if not getattr(self, "_sizing", False) and self.isVisible():
             self._save_size()
+
+    def _refresh_todo_text_layouts(self) -> None:
+        for item in self.findChildren(TodoItem):
+            item.refresh_text_layout()
 
     def _timer_active(self) -> bool:
         return self._timer is not None and self._timer.is_active()

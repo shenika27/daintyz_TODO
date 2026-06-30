@@ -198,7 +198,7 @@ def qss(mode: str | None) -> str:
     image: url({arrow_down}); width: 8px; height: 8px;
 }}
 
-#bubbleRoot QLineEdit {{
+#bubbleRoot QLineEdit, #bubbleRoot QPlainTextEdit {{
     border: none; background: {c['surface']}; color: {c['text']};
     border-radius: 10px; padding: 6px 10px; selection-background-color: {c['accent']};
 }}

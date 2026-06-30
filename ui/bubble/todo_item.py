@@ -25,8 +25,9 @@ from PyQt6.QtWidgets import (
     QCheckBox,
     QHBoxLayout,
     QLabel,
-    QLineEdit,
     QMenu,
+    QPlainTextEdit,
+    QSizePolicy,
     QToolButton,
     QToolTip,
     QWidget,
@@ -37,6 +38,42 @@ from domain.models import Todo
 
 MIME_TODO = "application/x-character-todo"
 _TOOLTIP_DELAY_MS = 500
+_ACTION_WIDTH = 46
+
+
+class _TodoEditor(QPlainTextEdit):
+    submitted = pyqtSignal()
+
+    def __init__(self, text: str, parent=None):
+        super().__init__(parent)
+        self.setPlainText(text)
+        self.setTabChangesFocus(True)
+        self.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.textChanged.connect(self._sync_height)
+        self._sync_height()
+
+    def keyPressEvent(self, e) -> None:
+        if e.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            if e.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+                super().keyPressEvent(e)
+            else:
+                self.submitted.emit()
+            return
+        super().keyPressEvent(e)
+
+    def focusOutEvent(self, e) -> None:
+        self.submitted.emit()
+        super().focusOutEvent(e)
+
+    def _sync_height(self) -> None:
+        doc_h = int(self.document().size().height())
+        line_h = self.fontMetrics().lineSpacing()
+        min_h = line_h + 16
+        max_h = line_h * 3 + 16
+        self.setFixedHeight(max(min_h, min(max_h, doc_h + 10)))
 
 
 class TodoItem(QWidget):
@@ -89,13 +126,13 @@ class TodoItem(QWidget):
         self.label.setProperty("state", "done" if todo.completed else "active")
         self.label.setWordWrap(False)
         self.label.setMinimumWidth(0)
+        self.label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         self._apply_strike()
         lay.addWidget(self.label, 1)
 
-        self.editor = QLineEdit(todo.content)
+        self.editor = _TodoEditor(todo.content)
         self.editor.setVisible(False)
-        self.editor.returnPressed.connect(self._commit_edit)
-        self.editor.editingFinished.connect(self._commit_edit)
+        self.editor.submitted.connect(self._commit_edit)
         lay.addWidget(self.editor, 1)
 
         # 반복 규칙으로 자동 생성된 항목 표시 뱃지
@@ -126,9 +163,15 @@ class TodoItem(QWidget):
         self.xbtn.clicked.connect(lambda: self.request_remove.emit(self.todo.id))
 
         if not compact:
-            lay.addSpacing(2)
-            lay.addWidget(self.pencil)
-            lay.addWidget(self.xbtn)
+            self._actions = QWidget()
+            self._actions.setFixedWidth(_ACTION_WIDTH)
+            self._actions.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+            action_lay = QHBoxLayout(self._actions)
+            action_lay.setContentsMargins(0, 0, 0, 0)
+            action_lay.setSpacing(2)
+            action_lay.addWidget(self.pencil)
+            action_lay.addWidget(self.xbtn)
+            lay.addWidget(self._actions)
 
         self.setMouseTracking(True)
         self.setToolTip("")  # 기본 툴팁 끔 (직접 1.5초 후 표시)
@@ -153,17 +196,24 @@ class TodoItem(QWidget):
     def _update_elision(self) -> None:
         fm = QFontMetrics(self.label.font())
         w = max(10, self.label.width())
-        self.label.setText(fm.elidedText(self.todo.content, Qt.TextElideMode.ElideRight, w))
+        lines = self.todo.content.splitlines() or [""]
+        self.label.setText(
+            "\n".join(fm.elidedText(line, Qt.TextElideMode.ElideRight, w) for line in lines)
+        )
 
     def resizeEvent(self, e) -> None:
         super().resizeEvent(e)
         if not self._editing:
             self._update_elision()
 
+    def refresh_text_layout(self) -> None:
+        if not self._editing:
+            self._update_elision()
+
     # ── 편집 ────────────────────────────────────────────────
     def _enter_edit(self) -> None:
         self._editing = True
-        self.editor.setText(self.todo.content)
+        self.editor.setPlainText(self.todo.content)
         self.label.setVisible(False)
         self.pencil.setVisible(False)
         self.xbtn.setVisible(False)
@@ -175,22 +225,26 @@ class TodoItem(QWidget):
         if not self._editing:
             return
         self._editing = False
-        text = self.editor.text().strip()
+        text = self.editor.toPlainText().strip()
         self.editor.setVisible(False)
         self.label.setVisible(True)
         if text and text != self.todo.content:
             self._service.edit(self.todo.id, text)
+        else:
+            self._update_elision()
 
     # ── hover: 아이콘 + 1.5초 툴팁 ──────────────────────────
     def enterEvent(self, _e) -> None:
         if not self._compact and not self._editing:
             self.pencil.setVisible(True)
             self.xbtn.setVisible(True)
+            self._update_elision()
         self._tip_timer.start()
 
     def leaveEvent(self, _e) -> None:
         self.pencil.setVisible(False)
         self.xbtn.setVisible(False)
+        self._update_elision()
         self._tip_timer.stop()
         QToolTip.hideText()
 

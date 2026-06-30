@@ -26,7 +26,7 @@ from PyQt6.QtWidgets import QApplication, QMenu, QWidget
 from core import paths
 from domain import policies
 from ui.bubble.todo_item import MIME_TODO
-from ui.qt_helpers import make_overlay_window
+from ui.qt_helpers import make_overlay_window, set_overlay_always_on_top
 
 log = logging.getLogger(__name__)
 
@@ -50,6 +50,7 @@ _FALLBACK_BASE = {
 _REACTION_MS = 3000       # 완료(done) 리액션 표시 시간
 _TIMER_DONE_MS = 3000     # 타이머 만료(timer_done) 리액션 표시 시간
 _GRID_REACT_MS = 1000     # 그리드 열기(open)/닫기(closed) 리액션 표시 시간
+_DELETE_REACT_MS = 1200   # 삭제 리액션 표시 시간
 _FALLBACK_EXTS = (".png", ".gif")  # 우선순위 순(둘 다 있으면 png)
 
 # 상황 → 설정 키. 'default' 는 기본 이미지, 나머지는 없으면 default 로 폴백.
@@ -118,6 +119,7 @@ class CharacterWidget(QWidget):
         self._events.todos_changed.connect(lambda _iso: self._sync_todo_count_bubble())
         self._events.todo_completed.connect(self._on_todo_completed)
         self._events.todo_added.connect(self._on_todo_added)
+        self._events.todo_removed.connect(self._on_todo_removed)
         self._events.delete_undo_available.connect(self._on_undo_available)
         if self._timer is not None:
             self._events.timer_started.connect(self._on_timer_started)
@@ -147,6 +149,9 @@ class CharacterWidget(QWidget):
         self._react_timer.setSingleShot(True)
         self._react_timer.timeout.connect(self._end_reaction)
 
+        self._apply_always_on_top(
+            self._settings.get_bool(policies.KEY_ALWAYS_ON_TOP, True)
+        )
         self._restore_position()
 
     # ── 이미지 ──────────────────────────────────────────────
@@ -289,6 +294,10 @@ class CharacterWidget(QWidget):
         if self._reacting:
             return
         self._start_reaction("add", _REACTION_MS)
+
+    def _on_todo_removed(self) -> None:
+        """삭제 아이콘/드롭 삭제 모두 캐릭터 삭제 리액션을 잠깐 보여준다."""
+        self._start_reaction("delete", _DELETE_REACT_MS)
 
     def _end_reaction(self) -> None:
         self._reacting = False
@@ -478,6 +487,8 @@ class CharacterWidget(QWidget):
         delta = e.globalPosition().toPoint() - self._press_global
         if delta.manhattanLength() >= QApplication.startDragDistance():
             self._moved = True
+        if self._settings.get_bool(policies.KEY_CHARACTER_POSITION_LOCKED, False):
+            return
         self.move(self._clamp(self._press_frame + delta))
         # 말풍선이 열려 있으면 같이 따라 이동 (뷰 재구성 없이 위치만)
         if self._bubble.isVisible():
@@ -493,6 +504,9 @@ class CharacterWidget(QWidget):
         if e.button() != Qt.MouseButton.LeftButton:
             return
         if self._moved:
+            if self._settings.get_bool(policies.KEY_CHARACTER_POSITION_LOCKED, False):
+                self._press_global = None
+                return
             self.save_position()
         else:
             self.toggle_bubble()
@@ -567,7 +581,6 @@ class CharacterWidget(QWidget):
         self._service.remove(int(tid_s))
         e.setDropAction(Qt.DropAction.CopyAction)
         e.accept()
-        self._restore_situation()  # 삭제 후 overdue/default 로 복귀
 
     def _restore_situation(self) -> None:
         """delete/리액션 등 일시 상태 종료 후 기본 상황으로 복귀."""
@@ -594,6 +607,20 @@ class CharacterWidget(QWidget):
         a_undo.setEnabled(self._undo_available)
         menu.addAction(a_undo)
 
+        a_top = QAction("항상 위", self)
+        a_top.setCheckable(True)
+        a_top.setChecked(self._settings.get_bool(policies.KEY_ALWAYS_ON_TOP, True))
+        a_top.toggled.connect(self._toggle_always_on_top)
+        menu.addAction(a_top)
+
+        a_lock = QAction("위치 고정", self)
+        a_lock.setCheckable(True)
+        a_lock.setChecked(
+            self._settings.get_bool(policies.KEY_CHARACTER_POSITION_LOCKED, False)
+        )
+        a_lock.toggled.connect(self._toggle_position_locked)
+        menu.addAction(a_lock)
+
         menu.addAction(self._action("트레이로 최소화", self._controller.minimize_to_tray))
         menu.addSeparator()
         menu.addAction(self._action("종료", self._controller.quit_app))
@@ -615,6 +642,21 @@ class CharacterWidget(QWidget):
 
     def _on_undo_available(self, available: bool) -> None:
         self._undo_available = available
+
+    def _toggle_always_on_top(self, on: bool) -> None:
+        self._settings.set_bool(policies.KEY_ALWAYS_ON_TOP, on)
+        self._apply_always_on_top(on)
+
+    def _apply_always_on_top(self, on: bool) -> None:
+        set_overlay_always_on_top(self, on)
+        self._bubble.set_always_on_top(on)
+        if self._timer_bubble is not None:
+            set_overlay_always_on_top(self._timer_bubble, on)
+        if self._todo_bubble is not None:
+            set_overlay_always_on_top(self._todo_bubble, on)
+
+    def _toggle_position_locked(self, on: bool) -> None:
+        self._settings.set_bool(policies.KEY_CHARACTER_POSITION_LOCKED, on)
 
     def _toggle_list(self, on: bool) -> None:
         """할일 목록 표시 토글(우클릭 메뉴): 목록 그리드 '상태'만 바꾼다.

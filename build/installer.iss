@@ -5,7 +5,7 @@
 
 #define AppName "Character TODO"
 #ifndef AppVersion
-  #define AppVersion "0.4.5"
+  #define AppVersion "0.4.6"
 #endif
 #define AppExe "CharacterTodo.exe"
 

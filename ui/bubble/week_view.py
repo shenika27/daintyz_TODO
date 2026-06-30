@@ -24,7 +24,7 @@ from PyQt6.QtWidgets import (
 from domain import policies
 from ui.bubble.todo_item import MIME_TODO, TodoItem
 
-LIST_HEIGHT = 240  # 요일별 목록 고정 높이(px)
+LIST_HEIGHT = 170  # 요일별 목록 최소 높이(px)
 
 
 class _ColList(QWidget):

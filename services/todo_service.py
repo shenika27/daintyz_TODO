@@ -115,6 +115,7 @@ class TodoService:
             self._undo = ("delete", t)
         self._events.delete_undo_available.emit(True)
         self._notify(t.due_date)
+        self._events.todo_removed.emit()
 
     def undo_remove(self) -> None:
         if not self._undo:

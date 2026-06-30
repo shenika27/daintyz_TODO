@@ -25,6 +25,8 @@ class EventBus(QObject):
     todo_completed = pyqtSignal()
     # 할일이 새로 추가된 순간(캐릭터 추가 리액션용)
     todo_added = pyqtSignal()
+    # 할일이 삭제된 순간(캐릭터 삭제 리액션용)
+    todo_removed = pyqtSignal()
     # 캐릭터 크기(%)가 바뀌었을 때
     character_scale_changed = pyqtSignal()
     # 글로벌 단축키 설정이 바뀌었을 때(재등록 트리거)
