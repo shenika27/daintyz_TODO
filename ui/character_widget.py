@@ -359,13 +359,13 @@ class CharacterWidget(QWidget):
         """'할일 n개' 풍선 클릭: 그리드를 다시 연다(캐릭터 클릭과 동일)."""
         self.toggle_bubble()
 
-    def _today_incomplete_count(self) -> int:
-        today = date.today().isoformat()
-        return sum(1 for t in self._service.list_for_date(today) if not t.completed)
+    def _total_incomplete_count(self) -> int:
+        return self._service.total_incomplete_count()
 
     def _sync_todo_count_bubble(self) -> None:
-        """그리드가 모두 숨겨진(최소화) 상태에서 오늘 미완료 할일이 있으면 '할일 n개'
-        풍선을 캐릭터 옆에 띄운다. 단, 타이머 풍선이 떠 있으면 타이머 우선이라 숨긴다(#2)."""
+        """그리드가 모두 숨겨진(최소화) 상태에서 미완료 할일이 있으면 '할일 n개'
+        풍선을 캐릭터 옆에 띄운다(오늘뿐 아니라 모든 날짜의 미완료 합산).
+        단, 타이머 풍선이 떠 있으면 타이머 우선이라 숨긴다(#2)."""
         tb = self._todo_bubble
         if tb is None:
             return
@@ -374,7 +374,7 @@ class CharacterWidget(QWidget):
             self._timer_bubble is not None and self._timer_bubble.isVisible()
         )
         grids_hidden = self.isVisible() and not self._bubble.any_grid_visible()
-        count = self._today_incomplete_count() if (on and grids_hidden) else 0
+        count = self._total_incomplete_count() if (on and grids_hidden) else 0
         if on and grids_hidden and not timer_showing and count > 0:
             tb.set_count(count)
             scr = self.available_geometry()

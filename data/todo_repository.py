@@ -33,6 +33,13 @@ class TodoRepository:
         ).fetchone()
         return r is not None
 
+    def count_incomplete(self) -> int:
+        """날짜와 무관하게 미완료·미숨김 할일 전체 개수."""
+        r = self.conn.execute(
+            "SELECT COUNT(*) FROM todos WHERE completed = 0 AND hidden = 0"
+        ).fetchone()
+        return r[0] if r else 0
+
     def latest_activity(self) -> str | None:
         """숨기지 않은 할일 중 가장 최근 created_at/updated_at. 없으면 None."""
         r = self.conn.execute(

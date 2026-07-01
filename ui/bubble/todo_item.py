@@ -35,6 +35,7 @@ from PyQt6.QtWidgets import (
 
 from domain import policies
 from domain.models import Todo
+from ui.qt_helpers import show_korean_text_menu
 
 MIME_TODO = "application/x-character-todo"
 _TOOLTIP_DELAY_MS = 500
@@ -65,8 +66,15 @@ class _TodoEditor(QPlainTextEdit):
         super().keyPressEvent(e)
 
     def focusOutEvent(self, e) -> None:
+        # 우클릭 메뉴 팝업이 포커스를 가져갈 때는 편집을 닫지 않는다.
+        if e.reason() == Qt.FocusReason.PopupFocusReason:
+            super().focusOutEvent(e)
+            return
         self.submitted.emit()
         super().focusOutEvent(e)
+
+    def contextMenuEvent(self, e) -> None:
+        show_korean_text_menu(self, e.globalPos())
 
     def _sync_height(self) -> None:
         doc_h = int(self.document().size().height())
@@ -164,7 +172,8 @@ class TodoItem(QWidget):
 
         if not compact:
             self._actions = QWidget()
-            self._actions.setFixedWidth(_ACTION_WIDTH)
+            # 평소엔 폭 0으로 접어 텍스트가 오른쪽 여백까지 쓰게 하고, hover 때만 펼친다.
+            self._actions.setFixedWidth(0)
             self._actions.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
             action_lay = QHBoxLayout(self._actions)
             action_lay.setContentsMargins(0, 0, 0, 0)
@@ -201,6 +210,18 @@ class TodoItem(QWidget):
             "\n".join(fm.elidedText(line, Qt.TextElideMode.ElideRight, w) for line in lines)
         )
 
+    def _set_actions_reserved(self, reserved: bool) -> None:
+        """hover 편집/삭제 버튼 자리를 펼치거나(46) 접는다(0).
+        접으면 라벨이 그 폭만큼 넓어져 말줄임 여백이 사라진다."""
+        if self._compact or not hasattr(self, "_actions"):
+            return
+        w = _ACTION_WIDTH if reserved else 0
+        if self._actions.maximumWidth() == w:
+            return
+        self._actions.setFixedWidth(w)
+        self.layout().activate()  # 라벨 폭을 즉시 반영해야 말줄임 계산이 맞다
+        self._update_elision()
+
     def resizeEvent(self, e) -> None:
         super().resizeEvent(e)
         if not self._editing:
@@ -217,6 +238,7 @@ class TodoItem(QWidget):
         self.label.setVisible(False)
         self.pencil.setVisible(False)
         self.xbtn.setVisible(False)
+        self._set_actions_reserved(False)  # 편집창은 전체 폭 사용
         self.editor.setVisible(True)
         self.editor.setFocus()
         self.editor.selectAll()
@@ -238,13 +260,13 @@ class TodoItem(QWidget):
         if not self._compact and not self._editing:
             self.pencil.setVisible(True)
             self.xbtn.setVisible(True)
-            self._update_elision()
+            self._set_actions_reserved(True)
         self._tip_timer.start()
 
     def leaveEvent(self, _e) -> None:
         self.pencil.setVisible(False)
         self.xbtn.setVisible(False)
-        self._update_elision()
+        self._set_actions_reserved(False)
         self._tip_timer.stop()
         QToolTip.hideText()
 

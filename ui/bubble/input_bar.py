@@ -4,6 +4,8 @@ from __future__ import annotations
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import QHBoxLayout, QPlainTextEdit, QSizePolicy, QWidget
 
+from ui.qt_helpers import show_korean_text_menu
+
 
 class _TodoInputEdit(QPlainTextEdit):
     submitted = pyqtSignal()
@@ -27,6 +29,9 @@ class _TodoInputEdit(QPlainTextEdit):
                 self.submitted.emit()
             return
         super().keyPressEvent(e)
+
+    def contextMenuEvent(self, e) -> None:
+        show_korean_text_menu(self, e.globalPos())
 
     def _sync_height(self) -> None:
         # QPlainTextEdit 의 document().size().height() 는 픽셀이 아니라 '줄 수'다

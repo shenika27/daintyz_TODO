@@ -31,6 +31,12 @@ class TodoService:
             self._recurring.ensure_for_date(date.today())
         return self._repo.list_for_date(iso)
 
+    def total_incomplete_count(self) -> int:
+        """날짜와 무관하게 미완료 할일 전체 개수('할일 n개' 풍선용).
+        오늘 회차 반복 할일이 빠지지 않도록 먼저 생성한 뒤 센다."""
+        self._recurring.ensure_for_date(date.today())
+        return self._repo.count_incomplete()
+
     def ensure_today_recurring(self) -> None:
         """오늘 날짜의 반복 회차를 생성(앱 시작·자정 넘김 시 컨트롤러가 호출)."""
         self._recurring.ensure_for_date(date.today())

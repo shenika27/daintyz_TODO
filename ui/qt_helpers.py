@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QWidget
+from PyQt6.QtGui import QKeySequence
+from PyQt6.QtWidgets import QMenu, QPlainTextEdit, QWidget
 
 
 def make_overlay_window(
@@ -22,6 +23,62 @@ def make_overlay_window(
         flags |= Qt.WindowType.WindowStaysOnTopHint
     widget.setWindowFlags(flags)
     widget.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+
+
+def show_korean_text_menu(edit: QPlainTextEdit, global_pos) -> None:
+    """QPlainTextEdit 우클릭 시 Qt 기본(영어) 메뉴 대신 한글 편집 메뉴를 띄운다.
+    Qt 번역 파일을 번들하지 않아도 되도록 표준 편집 동작을 직접 구성한다."""
+    cur = edit.textCursor()
+    has_sel = cur.hasSelection()
+    read_only = edit.isReadOnly()
+    doc = edit.document()
+
+    menu = QMenu(edit)
+
+    a = menu.addAction("실행 취소")
+    a.setShortcut(QKeySequence.StandardKey.Undo)
+    a.setEnabled(not read_only and doc.isUndoAvailable())
+    a.triggered.connect(edit.undo)
+
+    a = menu.addAction("다시 실행")
+    a.setShortcut(QKeySequence.StandardKey.Redo)
+    a.setEnabled(not read_only and doc.isRedoAvailable())
+    a.triggered.connect(edit.redo)
+
+    menu.addSeparator()
+
+    a = menu.addAction("잘라내기")
+    a.setShortcut(QKeySequence.StandardKey.Cut)
+    a.setEnabled(not read_only and has_sel)
+    a.triggered.connect(edit.cut)
+
+    a = menu.addAction("복사")
+    a.setShortcut(QKeySequence.StandardKey.Copy)
+    a.setEnabled(has_sel)
+    a.triggered.connect(edit.copy)
+
+    a = menu.addAction("붙여넣기")
+    a.setShortcut(QKeySequence.StandardKey.Paste)
+    a.setEnabled(not read_only and edit.canPaste())
+    a.triggered.connect(edit.paste)
+
+    def _delete_selection() -> None:
+        c = edit.textCursor()
+        c.removeSelectedText()
+        edit.setTextCursor(c)
+
+    a = menu.addAction("삭제")
+    a.setEnabled(not read_only and has_sel)
+    a.triggered.connect(_delete_selection)
+
+    menu.addSeparator()
+
+    a = menu.addAction("모두 선택")
+    a.setShortcut(QKeySequence.StandardKey.SelectAll)
+    a.setEnabled(not doc.isEmpty())
+    a.triggered.connect(edit.selectAll)
+
+    menu.exec(global_pos)
 
 
 def set_overlay_always_on_top(widget: QWidget, on: bool) -> None:
