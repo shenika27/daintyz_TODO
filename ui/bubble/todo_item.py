@@ -77,11 +77,11 @@ class _TodoEditor(QPlainTextEdit):
         show_korean_text_menu(self, e.globalPos())
 
     def _sync_height(self) -> None:
-        doc_h = int(self.document().size().height())
+        lines = int(round(self.document().size().height())) or 1
+        lines = max(1, min(2, lines))
         line_h = self.fontMetrics().lineSpacing()
-        min_h = line_h + 16
-        max_h = line_h * 3 + 16
-        self.setFixedHeight(max(min_h, min(max_h, doc_h + 10)))
+        pad = 18
+        self.setFixedHeight(line_h * lines + pad)
 
 
 class TodoItem(QWidget):
