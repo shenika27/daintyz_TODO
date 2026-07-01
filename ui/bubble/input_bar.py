@@ -29,11 +29,13 @@ class _TodoInputEdit(QPlainTextEdit):
         super().keyPressEvent(e)
 
     def _sync_height(self) -> None:
-        doc_h = int(self.document().size().height())
+        # QPlainTextEdit 의 document().size().height() 는 픽셀이 아니라 '줄 수'다
+        # (래핑 포함). 1~2줄만 높이에 반영하고, 3줄 이상은 2줄로 고정(그 이상은 스크롤).
+        lines = int(round(self.document().size().height())) or 1
+        lines = max(1, min(2, lines))
         line_h = self.fontMetrics().lineSpacing()
-        min_h = line_h + 18
-        max_h = line_h * 3 + 18
-        self.setFixedHeight(max(min_h, min(max_h, doc_h + 12)))
+        pad = 18  # 프레임 + 문서 여백 보정(기존 한 줄 높이와 동일하게)
+        self.setFixedHeight(line_h * lines + pad)
 
 
 class InputBar(QWidget):
