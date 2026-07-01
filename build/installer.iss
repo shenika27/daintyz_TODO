@@ -38,11 +38,10 @@ Source: "uninstall_all.bat"; DestDir: "{app}"; Flags: ignoreversion
 Name: "{group}\Character TODO"; Filename: "{app}\{#AppExe}"
 Name: "{userdesktop}\Character TODO"; Filename: "{app}\{#AppExe}"; Tasks: desktopicon
 Name: "{group}\Character TODO 완전 삭제"; Filename: "{app}\uninstall_all.bat"
-
-[Registry]
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; \
-  ValueType: string; ValueName: "CharacterTodo"; ValueData: """{app}\{#AppExe}"""; \
-  Flags: uninsdeletevalue; Tasks: autostart
+; 로그인 시 자동 시작: 레지스트리 Run 키 대신 시작폴더 바로가기 사용.
+; 일부 백신(V3)이 Run 키 자기등록을 지속성 악성행위(Persistence/AutoRun)로 오탐하기 때문.
+; 앱이 런타임에 관리하는 파일명(CharacterTodo.lnk)과 동일하게 맞춰 중복을 방지한다.
+Name: "{userstartup}\CharacterTodo"; Filename: "{app}\{#AppExe}"; Tasks: autostart
 
 [Run]
 Filename: "{app}\{#AppExe}"; Description: "지금 실행"; Flags: nowait postinstall skipifsilent

@@ -72,7 +72,7 @@ class AppController:
         from services import update_service
 
         update_service.ensure_canonical_exe_copy()
-        self.autostart_service.repair_if_registered()
+        self.autostart_service.sync_on_startup()
         self.notification = NotificationService(self.db)
         self.timer_service = TimerService(self.events)
 

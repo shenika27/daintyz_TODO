@@ -38,6 +38,11 @@ if exist "%APPDATA%\CharacterTodo" (
     echo       Already removed.
 )
 
+REM Autostart cleanup: startup-folder shortcut (app/installer managed) and any
+REM leftover legacy Run registry value from older versions.
+del "%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\CharacterTodo.lnk" >nul 2>&1
+reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v CharacterTodo /f >nul 2>&1
+
 echo.
 echo Full removal complete.
 
