@@ -175,6 +175,14 @@ def apply_and_restart(new_exe: Path) -> None:
     # 끝내 실패하면(권한 등) 받은 새 파일을 지우지 않고 남겨 구버전을 그대로 재실행한다.
     bat_lines = [
         "@echo off",
+        # PyInstaller onefile 은 실행 중 자기 임시 폴더(_MEIxxxxx) 경로를
+        # _MEIPASS2 등 환경변수로 자식 프로세스에 물려준다. 이 BAT 은 그 자식이라
+        # 값을 물려받은 상태다. 비우지 않으면 재시작된 새 exe 가 '이미 삭제된'
+        # 옛 _MEI 폴더에서 python DLL 을 찾다 실패한다("Failed to load Python DLL").
+        'set "_MEIPASS2="',
+        'set "_PYI_APPLICATION_HOME_DIR="',
+        'set "_PYI_ARCHIVE_INDEX="',
+        'set "_PYI_PARENT_PROCESS_LEVEL="',
         f'set "TARGET={current_exe}"',
         f'set "NEW={new_exe}"',
         ":wait_loop",
@@ -203,9 +211,19 @@ def apply_and_restart(new_exe: Path) -> None:
         # 한글 사용자명 경로(C:\Users\홍길동\...)가 깨지지 않는다.
         with os.fdopen(bat_fd, "w", encoding="mbcs", errors="replace", newline="") as f:
             f.write("\r\n".join(bat_lines) + "\r\n")
+        # 자식(cmd)이 현재 onefile 프로세스의 _MEIPASS2 등을 물려받지 않도록 제거.
+        env = os.environ.copy()
+        for var in (
+            "_MEIPASS2",
+            "_PYI_APPLICATION_HOME_DIR",
+            "_PYI_ARCHIVE_INDEX",
+            "_PYI_PARENT_PROCESS_LEVEL",
+        ):
+            env.pop(var, None)
         subprocess.Popen(
             ["cmd", "/c", bat_path],
             creationflags=subprocess.CREATE_NO_WINDOW,
+            env=env,
         )
     except Exception:  # noqa: BLE001
         log.exception("업데이트 런처 실행 실패")
