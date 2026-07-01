@@ -1,8 +1,8 @@
 """ui/tray.py — 시스템 트레이 아이콘과 메뉴."""
 from __future__ import annotations
 
-from PyQt6.QtGui import QAction, QBrush, QColor, QIcon, QPainter, QPixmap
-from PyQt6.QtWidgets import QMenu, QSystemTrayIcon
+from PySide6.QtGui import QAction, QBrush, QColor, QIcon, QPainter, QPixmap
+from PySide6.QtWidgets import QMenu, QSystemTrayIcon
 
 
 def _fallback_icon() -> QIcon:

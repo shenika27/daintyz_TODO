@@ -10,9 +10,9 @@
 """
 from __future__ import annotations
 
-from PyQt6.QtCore import QPoint, Qt, pyqtSignal
-from PyQt6.QtGui import QFontMetrics
-from PyQt6.QtWidgets import QApplication, QLabel, QVBoxLayout
+from PySide6.QtCore import QPoint, Qt, Signal
+from PySide6.QtGui import QFontMetrics
+from PySide6.QtWidgets import QApplication, QLabel, QVBoxLayout
 
 from domain import policies
 from ui import theme
@@ -20,7 +20,7 @@ from ui.floating_bubble import W, FloatingBubble
 
 
 class TimerBubble(FloatingBubble):
-    clicked = pyqtSignal()
+    clicked = Signal()
 
     def __init__(self, events, settings_repo, parent=None):
         super().__init__(settings_repo, parent)

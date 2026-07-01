@@ -6,9 +6,9 @@
 """
 from __future__ import annotations
 
-from PyQt6.QtCore import QEasingCurve, QPoint, QPropertyAnimation, Qt
-from PyQt6.QtGui import QFontMetrics
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import QEasingCurve, QPoint, QPropertyAnimation, Qt
+from PySide6.QtGui import QFontMetrics
+from PySide6.QtWidgets import (
     QCheckBox,
     QDialog,
     QFrame,
@@ -247,7 +247,7 @@ class TimerSetupDialog(QDialog):
 
     # ── 부모(또는 화면) 중앙에 배치(표시 전에 호출 → 좌상단 깜빡임 방지) ──
     def _center_on_parent(self) -> None:
-        from PyQt6.QtWidgets import QApplication
+        from PySide6.QtWidgets import QApplication
 
         par = self.parent()
         if par is not None and par.isVisible():

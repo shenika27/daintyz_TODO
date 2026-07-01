@@ -1,4 +1,4 @@
-"""tests/test_policies.py — 순수 도메인 정책 테스트 (PyQt6 없이 실행 가능).
+"""tests/test_policies.py — 순수 도메인 정책 테스트 (PySide6 없이 실행 가능).
 
 실행: python -m pytest -q   또는   python tests/test_policies.py
 """

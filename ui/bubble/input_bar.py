@@ -1,14 +1,14 @@
 """ui/bubble/input_bar.py — 말풍선 하단 입력. Enter 시 선택 날짜에 할일 추가."""
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtWidgets import QHBoxLayout, QPlainTextEdit, QSizePolicy, QWidget
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtWidgets import QHBoxLayout, QPlainTextEdit, QSizePolicy, QWidget
 
 from ui.qt_helpers import show_korean_text_menu
 
 
 class _TodoInputEdit(QPlainTextEdit):
-    submitted = pyqtSignal()
+    submitted = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)

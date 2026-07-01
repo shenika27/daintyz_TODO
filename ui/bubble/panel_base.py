@@ -6,8 +6,8 @@ apply_theme)을 제공한다. 위치/높이는 말풍선이 잡아준다(BubbleW
 """
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,

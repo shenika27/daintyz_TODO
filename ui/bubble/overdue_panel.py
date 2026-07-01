@@ -9,8 +9,8 @@ from __future__ import annotations
 
 from datetime import date
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import (
     QLabel,
     QScrollArea,
     QVBoxLayout,

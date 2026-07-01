@@ -8,8 +8,8 @@
 """
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtWidgets import QLabel, QVBoxLayout
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtWidgets import QLabel, QVBoxLayout
 
 from domain import policies
 from ui import theme
@@ -17,7 +17,7 @@ from ui.floating_bubble import FloatingBubble
 
 
 class TodoCountBubble(FloatingBubble):
-    clicked = pyqtSignal()
+    clicked = Signal()
 
     def __init__(self, settings_repo, parent=None):
         super().__init__(settings_repo, parent)

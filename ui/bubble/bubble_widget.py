@@ -13,7 +13,7 @@ from __future__ import annotations
 import calendar
 from datetime import date, timedelta
 
-from PyQt6.QtCore import (
+from PySide6.QtCore import (
     QEasingCurve,
     QEvent,
     QParallelAnimationGroup,
@@ -23,7 +23,7 @@ from PyQt6.QtCore import (
     Qt,
     QTimer,
 )
-from PyQt6.QtWidgets import (
+from PySide6.QtWidgets import (
     QApplication,
     QFrame,
     QGraphicsOpacityEffect,

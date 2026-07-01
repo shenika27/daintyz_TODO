@@ -11,8 +11,8 @@ from __future__ import annotations
 import logging
 from datetime import date
 
-from PyQt6.QtCore import QPoint, QSize, QTimer, Qt
-from PyQt6.QtGui import (
+from PySide6.QtCore import QPoint, QSize, QTimer, Qt
+from PySide6.QtGui import (
     QAction,
     QBrush,
     QColor,
@@ -21,7 +21,7 @@ from PyQt6.QtGui import (
     QPainter,
     QPixmap,
 )
-from PyQt6.QtWidgets import QApplication, QMenu, QWidget
+from PySide6.QtWidgets import QApplication, QMenu, QWidget
 
 from core import paths
 from domain import policies

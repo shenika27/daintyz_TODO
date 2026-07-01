@@ -1,6 +1,6 @@
 """core/global_hotkeys.py — Windows 전역 단축키(앱이 포커스 없어도 동작).
 
-PyQt6 자체로는 전역 단축키를 못 잡으므로 Win32 RegisterHotKey 를 ctypes 로 호출하고,
+PySide6 자체로는 전역 단축키를 못 잡으므로 Win32 RegisterHotKey 를 ctypes 로 호출하고,
 WM_HOTKEY 메시지를 QAbstractNativeEventFilter 로 받아 콜백을 부른다(권장 방식).
 Windows 가 아니면 register 는 조용히 무시된다(no-op).
 """
@@ -11,7 +11,7 @@ import logging
 import sys
 from ctypes import wintypes
 
-from PyQt6.QtCore import QAbstractNativeEventFilter
+from PySide6.QtCore import QAbstractNativeEventFilter
 
 log = logging.getLogger(__name__)
 
@@ -92,7 +92,7 @@ class GlobalHotkeys(QAbstractNativeEventFilter):
         self._callbacks.clear()
 
     def nativeEventFilter(self, event_type, message):  # noqa: N802 (Qt 시그니처)
-        if self._enabled and event_type == b"windows_generic_MSG":
+        if self._enabled and bytes(event_type) == b"windows_generic_MSG":
             msg = wintypes.MSG.from_address(int(message))
             if msg.message == _WM_HOTKEY:
                 cb = self._callbacks.get(int(msg.wParam))

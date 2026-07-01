@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 
-from PyQt6.QtCore import QObject, QTimer
+from PySide6.QtCore import QObject, QTimer
 
 log = logging.getLogger(__name__)
 

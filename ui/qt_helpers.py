@@ -1,9 +1,9 @@
 """ui/qt_helpers.py — 위젯 공통 셋업 헬퍼."""
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QKeySequence
-from PyQt6.QtWidgets import QMenu, QPlainTextEdit, QWidget
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QKeySequence
+from PySide6.QtWidgets import QMenu, QPlainTextEdit, QWidget
 
 
 def make_overlay_window(

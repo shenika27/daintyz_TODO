@@ -7,9 +7,9 @@
 """
 from __future__ import annotations
 
-from PyQt6.QtCore import QSize, Qt
-from PyQt6.QtGui import QColor, QFontMetrics, QIcon, QPainter, QPixmap
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import QSize, Qt
+from PySide6.QtGui import QColor, QFontMetrics, QIcon, QPainter, QPixmap
+from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -51,8 +51,8 @@ def _pause_pixmap(size: int, color: str) -> QPixmap:
 
 def _play_pixmap(size: int, color: str) -> QPixmap:
     """재개용 ▶ 아이콘(삼각형)."""
-    from PyQt6.QtCore import QPointF
-    from PyQt6.QtGui import QPolygonF
+    from PySide6.QtCore import QPointF
+    from PySide6.QtGui import QPolygonF
 
     pm = QPixmap(size, size)
     pm.fill(QColor(0, 0, 0, 0))

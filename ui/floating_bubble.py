@@ -9,8 +9,8 @@ QSS 에 자기 라벨 색만 덧붙이면 된다(TimerBubble/TodoCountBubble 공
 """
 from __future__ import annotations
 
-from PyQt6.QtCore import QPointF, QRect, QRectF, Qt
-from PyQt6.QtGui import (
+from PySide6.QtCore import QPointF, QRect, QRectF, Qt
+from PySide6.QtGui import (
     QBrush,
     QColor,
     QPainter,
@@ -18,7 +18,7 @@ from PyQt6.QtGui import (
     QPen,
     QPolygonF,
 )
-from PyQt6.QtWidgets import QFrame, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QFrame, QVBoxLayout, QWidget
 
 from domain import policies
 from ui import theme

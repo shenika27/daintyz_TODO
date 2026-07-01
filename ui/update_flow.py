@@ -12,8 +12,8 @@ import webbrowser
 from pathlib import Path
 from typing import Callable
 
-from PyQt6.QtCore import QThread, pyqtSignal
-from PyQt6.QtWidgets import QMessageBox, QProgressDialog
+from PySide6.QtCore import QThread, Signal
+from PySide6.QtWidgets import QMessageBox, QProgressDialog
 
 from services import update_service
 
@@ -24,9 +24,9 @@ _ACTIVE: list = []
 
 
 class _DownloadWorker(QThread):
-    progress = pyqtSignal(int, int)  # downloaded, total
-    done = pyqtSignal(str)           # 완료 파일 경로
-    error = pyqtSignal(str)          # 실패 메시지
+    progress = Signal(int, int)  # downloaded, total
+    done = Signal(str)           # 완료 파일 경로
+    error = Signal(str)          # 실패 메시지
 
     def __init__(self, url: str, parent=None):
         super().__init__(parent)

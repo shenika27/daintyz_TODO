@@ -8,9 +8,9 @@ import logging
 import sys
 from datetime import date
 
-from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QFont
-from PyQt6.QtWidgets import QApplication, QMessageBox
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QFont
+from PySide6.QtWidgets import QApplication, QMessageBox
 
 from core import logging_config
 from core.events import EventBus
@@ -229,7 +229,7 @@ class AppController:
             except Exception:  # noqa: BLE001
                 log.exception("db close 오류")
             # 메뉴/트리거 콜백 스택이 풀린 뒤 종료하도록 다음 틱으로 미룸
-            from PyQt6.QtCore import QTimer
+            from PySide6.QtCore import QTimer
 
             QTimer.singleShot(0, self.app.quit)
 
@@ -243,7 +243,7 @@ class AppController:
         QTimer.singleShot(3000, self._check_update_background)
 
     def _check_update_background(self) -> None:
-        from PyQt6.QtCore import QThread, pyqtSignal as Signal
+        from PySide6.QtCore import QThread, Signal
         from services import update_service
 
         if not update_service.UPDATE_CHECK_URL:
@@ -262,7 +262,7 @@ class AppController:
         self._update_worker.start()
 
     def _on_update_found(self, info) -> None:
-        from PyQt6.QtWidgets import QMessageBox
+        from PySide6.QtWidgets import QMessageBox
 
         from ui.update_flow import run_update_flow
 
@@ -282,12 +282,12 @@ class _WindowShowLogger:
     환경변수 CT_DEBUG_WINDOWS=1 일 때만 설치된다('떴다 사라지는 원인미상 창' 추적용)."""
 
     def __init__(self):
-        from PyQt6.QtCore import QObject
+        from PySide6.QtCore import QObject
 
         class _Filter(QObject):
             def eventFilter(self, obj, event):
-                from PyQt6.QtCore import QEvent
-                from PyQt6.QtWidgets import QWidget
+                from PySide6.QtCore import QEvent
+                from PySide6.QtWidgets import QWidget
 
                 et = event.type()
                 if et in (QEvent.Type.Show, QEvent.Type.Hide) and \
@@ -313,7 +313,7 @@ def _acquire_single_instance():
     """이미 실행 중인 인스턴스가 있으면 None 을 반환한다(중복 실행 차단, #1).
     없으면 공유 메모리 핸들을 만들어 돌려준다 — 호출자가 프로세스 수명 동안 참조를
     유지해야 잠금이 풀리지 않는다. Windows 는 프로세스 종료 시 자동 해제된다."""
-    from PyQt6.QtCore import QSharedMemory
+    from PySide6.QtCore import QSharedMemory
 
     shared = QSharedMemory(_SINGLE_INSTANCE_KEY)
     if not shared.create(1):
@@ -358,7 +358,7 @@ def main() -> int:
 
 
 def Tray_is_available() -> bool:
-    from PyQt6.QtWidgets import QSystemTrayIcon
+    from PySide6.QtWidgets import QSystemTrayIcon
 
     return QSystemTrayIcon.isSystemTrayAvailable()
 

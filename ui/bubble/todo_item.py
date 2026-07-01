@@ -8,8 +8,8 @@
 """
 from __future__ import annotations
 
-from PyQt6.QtCore import QMimeData, QPoint, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import (
+from PySide6.QtCore import QMimeData, QPoint, Qt, QTimer, Signal
+from PySide6.QtGui import (
     QColor,
     QCursor,
     QDrag,
@@ -20,7 +20,7 @@ from PyQt6.QtGui import (
     QPen,
     QPixmap,
 )
-from PyQt6.QtWidgets import (
+from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
     QHBoxLayout,
@@ -43,7 +43,7 @@ _ACTION_WIDTH = 46
 
 
 class _TodoEditor(QPlainTextEdit):
-    submitted = pyqtSignal()
+    submitted = Signal()
 
     def __init__(self, text: str, parent=None):
         super().__init__(parent)
@@ -85,7 +85,7 @@ class _TodoEditor(QPlainTextEdit):
 
 
 class TodoItem(QWidget):
-    request_remove = pyqtSignal(int)
+    request_remove = Signal(int)
 
     def __init__(self, todo: Todo, service, compact: bool = False,
                  timer_service=None, settings_repo=None, events=None, parent=None):

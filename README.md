@@ -1,7 +1,7 @@
 # Character TODO
 
 바탕화면 위에 캐릭터가 떠 있는 데스크톱 할일(투두) 앱. 캐릭터를 클릭하면
-말풍선이 열리고, 일간 → 주간 → 월간으로 확장하며 할일을 관리합니다. (PyQt6 / SQLite)
+말풍선이 열리고, 일간 → 주간 → 월간으로 확장하며 할일을 관리합니다. (PySide6 / SQLite)
 
 ## 주요 기능
 
@@ -62,7 +62,7 @@ build\build.bat
 ## 테스트
 
 ```bash
-python tests/test_policies.py     # 순수 로직 (PyQt6 불필요)
+python tests/test_policies.py     # 순수 로직 (PySide6 불필요)
 # 또는: python -m pytest -q
 ```
 

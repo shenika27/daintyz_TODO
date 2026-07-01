@@ -9,9 +9,9 @@ import shutil
 from datetime import date
 from pathlib import Path
 
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
-from PyQt6.QtGui import QFont, QFontDatabase, QKeySequence
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtGui import QFont, QFontDatabase, QKeySequence
+from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
     QComboBox,
@@ -275,6 +275,24 @@ class SettingsDialog(QDialog):
 
         form.addRow(update_box)
 
+        # 정보(제작자 · 저작권)
+        info_box = QGroupBox("정보")
+        il = QVBoxLayout(info_box)
+        credit = QLabel(
+            'CharacterTodo · 제작 seungtk, daintyz<br>'
+            '문의: <a href="mailto:daintyzdaintyz@gmail.com">daintyzdaintyz@gmail.com</a><br>'
+            '© 2026 daintyz Co. All rights reserved.'
+        )
+        credit.setObjectName("subText")
+        credit.setTextFormat(Qt.TextFormat.RichText)
+        credit.setOpenExternalLinks(True)
+        credit.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextBrowserInteraction
+        )
+        credit.setWordWrap(True)
+        il.addWidget(credit)
+        form.addRow(info_box)
+
         return w
 
     def _select_data(self, combo: QComboBox, value) -> None:
@@ -524,7 +542,7 @@ class SettingsDialog(QDialog):
         self._update_status.setText("확인 중…")
 
         class _CheckWorker(QThread):
-            done = pyqtSignal(object)  # UpdateInfo | None
+            done = Signal(object)  # UpdateInfo | None
 
             def run(self):
                 self.done.emit(update_service.check_update())
@@ -559,7 +577,7 @@ class SettingsDialog(QDialog):
         self._notes_btn.setText("불러오는 중…")
 
         class _NotesWorker(QThread):
-            done = pyqtSignal(object)  # (status, ReleaseNotes | None)
+            done = Signal(object)  # (status, ReleaseNotes | None)
 
             def run(self):
                 self.done.emit(update_service.fetch_release_notes())

@@ -4,8 +4,8 @@
 """
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QLabel, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QLabel, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
 
 from ui.bubble.todo_item import MIME_TODO, TodoItem
 from ui.bubble.week_view import LIST_HEIGHT  # 일간 목록 높이를 주간과 동일하게 공유

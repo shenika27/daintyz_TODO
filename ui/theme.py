@@ -5,9 +5,9 @@
 """
 from __future__ import annotations
 
-from PyQt6.QtCore import QPointF, Qt
-from PyQt6.QtGui import QColor, QPainter, QPen, QPixmap, QPolygonF
-from PyQt6.QtWidgets import QApplication
+from PySide6.QtCore import QPointF, Qt
+from PySide6.QtGui import QColor, QPainter, QPen, QPixmap, QPolygonF
+from PySide6.QtWidgets import QApplication
 
 from core import paths
 

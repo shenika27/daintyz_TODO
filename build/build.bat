@@ -30,7 +30,7 @@ if errorlevel 1 (
 echo [2/7] Installing dependencies
 set "NEED_DEPS="
 if defined FORCE_DEPS set "NEED_DEPS=1"
-if not defined NEED_DEPS python -c "import PyQt6, PyInstaller" 1>>"%LOG%" 2>>&1
+if not defined NEED_DEPS python -c "import PySide6, PyInstaller" 1>>"%LOG%" 2>>&1
 if not defined NEED_DEPS if errorlevel 1 set "NEED_DEPS=1"
 if defined NEED_DEPS (
     pip install --upgrade pip 1>>"%LOG%" 2>>&1
