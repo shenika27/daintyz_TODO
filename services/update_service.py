@@ -1,0 +1,177 @@
+"""services/update_service.py — 업데이트 확인 및 자동 설치 서비스.
+
+version.json 형식:
+    {"version": "0.4.7", "download_url": "https://..."}
+"""
+from __future__ import annotations
+
+import json
+import logging
+import os
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+from typing import Callable, NamedTuple
+
+log = logging.getLogger(__name__)
+
+# GitHub Releases 의 latest 릴리즈에 올라간 version.json 을 항상 가리키는 안정 URL.
+# 새 버전 릴리즈 때마다 자동으로 갱신되므로 이 값은 바꿀 필요 없습니다.
+UPDATE_CHECK_URL: str = (
+    "https://github.com/shenika27/daintyz_TODO"
+    "/releases/latest/download/version.json"
+)
+# 자동 교체가 불가할 때(설치판 등) 사용자에게 안내할 릴리즈 페이지.
+RELEASES_PAGE_URL: str = "https://github.com/shenika27/daintyz_TODO/releases/latest"
+
+
+class UpdateNeedsManualInstall(Exception):
+    """설치 위치에 쓸 수 없어 자동 교체가 불가한 경우(예: Program Files 설치판)."""
+
+
+class UpdateInfo(NamedTuple):
+    version: str
+    download_url: str
+
+
+def _parse_version(v: str) -> tuple[int, ...]:
+    try:
+        return tuple(int(x) for x in v.strip().lstrip("v").split("."))
+    except Exception:  # noqa: BLE001
+        return (0,)
+
+
+def current_version() -> str:
+    from core import paths
+
+    try:
+        return (paths.app_root() / "VERSION").read_text(encoding="utf-8").strip()
+    except Exception:  # noqa: BLE001
+        return "0.0.0"
+
+
+def check_update() -> UpdateInfo | None:
+    """최신 version.json 을 읽어, 현재보다 새 버전이면 UpdateInfo 반환. 아니면 None."""
+    if not UPDATE_CHECK_URL:
+        return None
+    import urllib.request
+
+    try:
+        req = urllib.request.Request(
+            UPDATE_CHECK_URL,
+            headers={"User-Agent": "CharacterTodo-Updater"},
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode())
+        latest: str = data["version"]
+        url: str = data["download_url"]
+        if _parse_version(latest) > _parse_version(current_version()):
+            return UpdateInfo(version=latest, download_url=url)
+        return None
+    except Exception as e:  # noqa: BLE001
+        log.warning("업데이트 확인 실패: %s", e)
+        return None
+
+
+def download_update(
+    url: str,
+    progress_cb: Callable[[int, int], None] | None = None,
+) -> Path:
+    """URL 에서 새 EXE 를 다운로드해 임시 경로로 반환."""
+    import urllib.request
+
+    from core import paths
+
+    dl_dir = paths.app_data_dir() / "update"
+    dl_dir.mkdir(parents=True, exist_ok=True)
+    dest = dl_dir / "CharacterTodo_new.exe"
+
+    req = urllib.request.Request(url, headers={"User-Agent": "CharacterTodo-Updater"})
+    with urllib.request.urlopen(req, timeout=120) as resp:
+        total = int(resp.headers.get("Content-Length", 0))
+        downloaded = 0
+        chunk_size = 65536
+        with dest.open("wb") as f:
+            while True:
+                buf = resp.read(chunk_size)
+                if not buf:
+                    break
+                f.write(buf)
+                downloaded += len(buf)
+                if progress_cb:
+                    progress_cb(downloaded, total)
+    return dest
+
+
+def _dir_writable(path: Path) -> bool:
+    """디렉토리에 실제로 쓸 수 있는지 시험 파일로 확인."""
+    probe = path / f".ct_write_test_{os.getpid()}"
+    try:
+        probe.write_text("x", encoding="ascii")
+        probe.unlink()
+        return True
+    except OSError:
+        return False
+
+
+def apply_and_restart(new_exe: Path) -> None:
+    """현재 EXE 를 새 파일로 교체하고 재시작.
+
+    PyInstaller onefile 빌드에서만 동작. 개발 실행 시에는 건너뜁니다.
+    실행 중인 EXE 는 교체 불가(Windows 잠금)이므로 현재 프로세스 종료를
+    기다리는 임시 BAT 을 만들어 비동기로 실행한 뒤 앱을 종료합니다.
+
+    설치 위치가 쓰기 불가(예: 관리자 권한이 필요한 Program Files 설치판)이면
+    조용히 구버전으로 되돌아가는 대신 UpdateNeedsManualInstall 을 던집니다.
+    """
+    if not getattr(sys, "frozen", False):
+        log.warning("개발 실행 중 — EXE 교체 건너뜀. 새 파일: %s", new_exe)
+        return
+
+    current_exe = Path(sys.executable).resolve()
+    if not _dir_writable(current_exe.parent):
+        raise UpdateNeedsManualInstall(str(current_exe.parent))
+
+    pid = os.getpid()
+
+    # 종료 대기: PID 로 필터 후 이미지명(CharacterTodo)까지 확인해 PID 재사용 오탐 방지.
+    # 교체는 백신/핸들 잠금으로 잠깐 실패할 수 있어 최대 15회 재시도한다.
+    # 끝내 실패하면(권한 등) 받은 새 파일을 지우지 않고 남겨 구버전을 그대로 재실행한다.
+    bat_lines = [
+        "@echo off",
+        f'set "TARGET={current_exe}"',
+        f'set "NEW={new_exe}"',
+        ":wait_loop",
+        f'tasklist /FI "PID eq {pid}" /NH 2>nul | findstr /I "CharacterTodo" >nul',
+        "if not errorlevel 1 ( timeout /t 1 /nobreak >nul & goto wait_loop )",
+        "set TRIES=0",
+        ":copy_loop",
+        'copy /Y "%NEW%" "%TARGET%" >nul && goto copied',
+        "set /a TRIES+=1",
+        "if %TRIES% geq 15 goto copy_failed",
+        "timeout /t 1 /nobreak >nul",
+        "goto copy_loop",
+        ":copied",
+        'del /F /Q "%NEW%" >nul 2>&1',
+        'start "" "%TARGET%"',
+        "goto cleanup",
+        ":copy_failed",
+        'start "" "%TARGET%"',
+        ":cleanup",
+        'del /F /Q "%~f0"',
+    ]
+
+    bat_fd, bat_path = tempfile.mkstemp(suffix="_ct_update.bat")
+    try:
+        # cmd 는 BAT 을 시스템 ANSI 코드페이지로 읽으므로 mbcs 로 기록해야
+        # 한글 사용자명 경로(C:\Users\홍길동\...)가 깨지지 않는다.
+        with os.fdopen(bat_fd, "w", encoding="mbcs", errors="replace", newline="") as f:
+            f.write("\r\n".join(bat_lines) + "\r\n")
+        subprocess.Popen(
+            ["cmd", "/c", bat_path],
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+    except Exception:  # noqa: BLE001
+        log.exception("업데이트 런처 실행 실패")
+        raise

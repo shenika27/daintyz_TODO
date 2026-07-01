@@ -121,6 +121,7 @@ class AppController:
             self.recurring_repo,
             self.todo_service,
             parent=self.character,
+            app_quit=self.quit_app,
         )
         dlg.exec()
 
@@ -238,6 +239,42 @@ class AppController:
         self.notification.start()
         # character.show() 이후 frameGeometry 가 확정되면 이전 그리드 상태 복원
         QTimer.singleShot(0, self.character.restore_on_startup)
+        # 시작 3초 후 백그라운드로 업데이트 확인
+        QTimer.singleShot(3000, self._check_update_background)
+
+    def _check_update_background(self) -> None:
+        from PyQt6.QtCore import QThread, pyqtSignal as Signal
+        from services import update_service
+
+        if not update_service.UPDATE_CHECK_URL:
+            return
+
+        class _Worker(QThread):
+            found = Signal(object)
+
+            def run(self):
+                info = update_service.check_update()
+                if info:
+                    self.found.emit(info)
+
+        self._update_worker = _Worker(self.app)
+        self._update_worker.found.connect(self._on_update_found)
+        self._update_worker.start()
+
+    def _on_update_found(self, info) -> None:
+        from PyQt6.QtWidgets import QMessageBox
+
+        from ui.update_flow import run_update_flow
+
+        ret = QMessageBox.question(
+            self.character,
+            "업데이트 알림",
+            f"새 버전 v{info.version} 이 있습니다.\n지금 업데이트할까요?\n\n(나중에 설정 → 업데이트 확인에서도 가능합니다)",
+        )
+        if ret != QMessageBox.StandardButton.Yes:
+            return
+        # 다운로드는 백그라운드 스레드에서 진행(UI 멈춤 방지). 완료 시 정상 종료 후 재시작.
+        run_update_flow(self.character, info, self.quit_app)
 
 
 class _WindowShowLogger:

@@ -9,7 +9,7 @@ import shutil
 from datetime import date
 from pathlib import Path
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QFont, QFontDatabase, QKeySequence
 from PyQt6.QtWidgets import (
     QApplication,
@@ -51,7 +51,7 @@ def _app_version() -> str:
 
 class SettingsDialog(QDialog):
     def __init__(self, settings_repo, events, backup_service, autostart_service,
-                 recurring_repo, todo_service, parent=None):
+                 recurring_repo, todo_service, parent=None, app_quit=None):
         super().__init__(parent)
         self._settings = settings_repo
         self._events = events
@@ -59,6 +59,8 @@ class SettingsDialog(QDialog):
         self._autostart = autostart_service
         self._rules = recurring_repo
         self._todo_service = todo_service
+        # 업데이트 적용 직전 앱을 정상 종료시키는 콜백(위치 저장·DB close 포함).
+        self._app_quit = app_quit
 
         self.setWindowTitle(f"설정 — v{_app_version()}")
         self.resize(420, 480)
@@ -245,6 +247,28 @@ class SettingsDialog(QDialog):
         bl.addWidget(b_exp)
         bl.addWidget(b_imp)
         form.addRow(backup_box)
+
+        # 업데이트
+        from services import update_service
+
+        update_box = QGroupBox("앱 업데이트")
+        ul = QVBoxLayout(update_box)
+
+        ver_row = QHBoxLayout()
+        ver_row.addWidget(QLabel(f"현재 버전: v{update_service.current_version()}"))
+        self._update_status = QLabel("")
+        self._update_status.setObjectName("subText")
+        ver_row.addWidget(self._update_status, 1)
+        ul.addLayout(ver_row)
+
+        btn_row = QHBoxLayout()
+        self._check_btn = QPushButton("업데이트 확인")
+        self._check_btn.clicked.connect(self._check_update)
+        btn_row.addWidget(self._check_btn)
+        btn_row.addStretch(1)
+        ul.addLayout(btn_row)
+
+        form.addRow(update_box)
 
         return w
 
@@ -486,6 +510,42 @@ class SettingsDialog(QDialog):
             QMessageBox.information(self, "복원", "복원했습니다. 앱을 재시작하세요.")
         except Exception as ex:  # noqa: BLE001
             QMessageBox.critical(self, "오류", str(ex))
+
+    # ── 업데이트 ────────────────────────────────────────────
+    def _check_update(self) -> None:
+        from services import update_service
+
+        self._check_btn.setEnabled(False)
+        self._update_status.setText("확인 중…")
+
+        class _CheckWorker(QThread):
+            done = pyqtSignal(object)  # UpdateInfo | None
+
+            def run(self):
+                self.done.emit(update_service.check_update())
+
+        self._check_worker = _CheckWorker(self)
+        self._check_worker.done.connect(self._on_check_done)
+        self._check_worker.start()
+
+    def _on_check_done(self, info) -> None:
+        self._check_btn.setEnabled(True)
+        if info is None:
+            self._update_status.setText("최신 버전입니다.")
+            return
+        self._update_status.setText(f"새 버전 v{info.version} 발견!")
+        if QMessageBox.question(
+            self,
+            "업데이트",
+            f"새 버전 v{info.version} 이 있습니다.\n지금 다운로드하고 재시작할까요?",
+        ) != QMessageBox.StandardButton.Yes:
+            return
+        # 다운로드·적용은 공용 흐름에 위임(백그라운드 진행 + 진행률 표시).
+        from ui.update_flow import run_update_flow
+
+        on_quit = self._app_quit or QApplication.instance().quit
+        self.accept()
+        run_update_flow(self.parent() or None, info, on_quit)
 
     # ── 반복 할일 탭 ────────────────────────────────────────
     def _build_recurring(self) -> QWidget:

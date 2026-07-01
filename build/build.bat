@@ -17,7 +17,7 @@ set "VERSION=0.0.0"
 if exist VERSION set /p VERSION=<VERSION
 echo Version: %VERSION% >> "%LOG%"
 
-echo [1/5] Preparing virtual environment
+echo [1/7] Preparing virtual environment
 if not exist .venv (
     python -m venv .venv 1>>"%LOG%" 2>>&1
 )
@@ -27,7 +27,7 @@ if errorlevel 1 (
     goto :fail
 )
 
-echo [2/5] Installing dependencies
+echo [2/7] Installing dependencies
 set "NEED_DEPS="
 if defined FORCE_DEPS set "NEED_DEPS=1"
 if not defined NEED_DEPS python -c "import PyQt6, PyInstaller" 1>>"%LOG%" 2>>&1
@@ -44,7 +44,7 @@ if defined NEED_DEPS (
     echo     [skip] dependencies present ^(set FORCE_DEPS=1 to reinstall^)
 )
 
-echo [3/5] Cleaning output (set CLEAN=1 to also clear PyInstaller cache)
+echo [3/7] Cleaning output (set CLEAN=1 to also clear PyInstaller cache)
 if exist dist rmdir /S /Q dist
 if defined CLEAN if exist build\build rmdir /S /Q build\build
 if defined CLEAN for /r %%d in (__pycache__) do if exist "%%d" rmdir /S /Q "%%d"

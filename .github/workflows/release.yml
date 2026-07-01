@@ -1,0 +1,87 @@
+name: Build & Release
+
+# v* 태그를 push 하면 자동으로 EXE 를 빌드하고 GitHub Release 를 생성합니다.
+# 사용법: git tag v0.4.7 && git push origin v0.4.7
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    permissions:
+      contents: write   # Release 생성 및 파일 업로드 권한
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Read VERSION
+        id: ver
+        shell: pwsh
+        run: |
+          $v = (Get-Content VERSION).Trim()
+          echo "version=$v" >> $env:GITHUB_OUTPUT
+          echo "Version: $v"
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build EXE (PyInstaller)
+        shell: pwsh
+        env:
+          CHARACTER_EDIT: "Y"   # CI 에서는 항상 캐릭터 변경 허용 빌드
+        run: |
+          python -m PyInstaller --noconfirm build\character_todo.spec
+
+      - name: Verify build output
+        shell: pwsh
+        run: |
+          $exe = "dist\CharacterTodo-onefile-${{ steps.ver.outputs.version }}.exe"
+          if (-not (Test-Path $exe)) {
+            Write-Error "빌드 산출물 없음: $exe"
+            exit 1
+          }
+          $size = (Get-Item $exe).Length / 1MB
+          echo "EXE 크기: $([math]::Round($size,1)) MB"
+
+      - name: Generate version.json
+        shell: pwsh
+        run: |
+          $ver = "${{ steps.ver.outputs.version }}"
+          $repo = "${{ github.repository }}"
+          $dlUrl = "https://github.com/$repo/releases/download/v$ver/CharacterTodo-onefile-$ver.exe"
+          $json = [ordered]@{ version = $ver; download_url = $dlUrl } | ConvertTo-Json
+          $json | Set-Content -Encoding UTF8 dist\version.json
+          echo "version.json 생성됨:"
+          Get-Content dist\version.json
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "v${{ steps.ver.outputs.version }}"
+          body: |
+            ## CharacterTodo v${{ steps.ver.outputs.version }}
+
+            ### 설치 방법
+            `CharacterTodo-onefile-${{ steps.ver.outputs.version }}.exe` 를 다운로드해서 실행하세요.
+            이전 버전과 파일을 교체하면 업데이트됩니다.
+
+            > 앱 내 자동 업데이트: 설정 → 앱 업데이트 → 업데이트 확인
+          files: |
+            dist/CharacterTodo-onefile-${{ steps.ver.outputs.version }}.exe
+            dist/version.json
+          draft: false
+          prerelease: false
