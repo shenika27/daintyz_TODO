@@ -9,6 +9,12 @@ on:
     paths: ['VERSION']       # 평소: VERSION 이 바뀐 채 main 에 push 되면 자동 배포
     tags: ['v*']             # 수동 재배포: git push origin v0.4.8 로 강제 실행
   workflow_dispatch:          # Actions 탭에서 수동 실행
+    inputs:
+      character_edit:
+        description: '캐릭터 이미지 변경 허용'
+        type: choice
+        options: ['Y', 'N']
+        default: 'Y'
 
 jobs:
   build:
@@ -63,11 +69,28 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
 
+      - name: Apply build flags (character edit)
+        if: steps.check.outputs.skip != 'true'
+        shell: pwsh
+        run: |
+          # 우선순위: 수동 실행 입력 > build/character_edit.txt > 기본 'Y'(허용)
+          $choice = "${{ github.event.inputs.character_edit }}"
+          if (-not $choice -and (Test-Path build/character_edit.txt)) {
+            $choice = (Get-Content build/character_edit.txt -Raw).Trim()
+          }
+          if (-not $choice) { $choice = "Y" }
+          $flag = "resources/character_edit_disabled.flag"
+          if ($choice -match '^(N|n|0|off|false)$') {
+            "disabled" | Set-Content -Encoding ascii $flag
+            Write-Host "캐릭터 이미지 변경: 비활성 (고정 이미지)"
+          } else {
+            if (Test-Path $flag) { Remove-Item $flag }
+            Write-Host "캐릭터 이미지 변경: 허용"
+          }
+
       - name: Build EXE (PyInstaller)
         if: steps.check.outputs.skip != 'true'
         shell: pwsh
-        env:
-          CHARACTER_EDIT: "Y"   # CI 에서는 항상 캐릭터 변경 허용 빌드
         run: |
           python -m PyInstaller --noconfirm build\character_todo.spec
 
