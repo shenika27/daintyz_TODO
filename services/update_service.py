@@ -28,6 +28,9 @@ RELEASES_PAGE_URL: str = "https://github.com/shenika27/daintyz_TODO/releases/lat
 API_LATEST_URL: str = (
     "https://api.github.com/repos/shenika27/daintyz_TODO/releases/latest"
 )
+API_RELEASES_URL: str = (
+    "https://api.github.com/repos/shenika27/daintyz_TODO/releases"
+)
 
 
 class UpdateNeedsManualInstall(Exception):
@@ -43,6 +46,15 @@ class ReleaseNotes(NamedTuple):
     version: str
     published_at: str  # YYYY-MM-DD
     body: str          # 릴리즈 본문(마크다운)
+
+
+def _release_notes_from_data(data: dict) -> ReleaseNotes:
+    tag = data.get("tag_name") or data.get("name") or ""
+    return ReleaseNotes(
+        version=tag.lstrip("v"),
+        published_at=(data.get("published_at") or "")[:10],
+        body=(data.get("body") or "").strip(),
+    )
 
 
 def _parse_version(v: str) -> tuple[int, ...]:
@@ -106,12 +118,7 @@ def fetch_release_notes() -> tuple[str, ReleaseNotes | None]:
         )
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode())
-        tag = data.get("tag_name") or data.get("name") or ""
-        return "ok", ReleaseNotes(
-            version=tag.lstrip("v"),
-            published_at=(data.get("published_at") or "")[:10],
-            body=(data.get("body") or "").strip(),
-        )
+        return "ok", _release_notes_from_data(data)
     except urllib.error.HTTPError as e:
         # 404 = 아직 릴리즈가 없음(리포는 정상). 그 외 HTTP 오류는 error 로.
         if e.code == 404:
@@ -120,6 +127,36 @@ def fetch_release_notes() -> tuple[str, ReleaseNotes | None]:
         return "error", None
     except Exception as e:  # noqa: BLE001
         log.warning("패치노트 조회 실패: %s", e)
+        return "error", None
+
+
+def fetch_release_notes_list(limit: int = 10) -> tuple[str, list[ReleaseNotes] | None]:
+    """최근 릴리즈 패치노트 목록을 (status, notes_list) 로 반환."""
+    import urllib.error
+    import urllib.request
+
+    per_page = max(1, min(limit, 100))
+    try:
+        req = urllib.request.Request(
+            f"{API_RELEASES_URL}?per_page={per_page}",
+            headers={
+                "User-Agent": "CharacterTodo-Updater",
+                "Accept": "application/vnd.github+json",
+            },
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode())
+        notes = [_release_notes_from_data(item) for item in data]
+        if not notes:
+            return "not_found", None
+        return "ok", notes
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return "not_found", None
+        log.warning("패치노트 목록 조회 실패(HTTP %s): %s", e.code, e)
+        return "error", None
+    except Exception as e:  # noqa: BLE001
+        log.warning("패치노트 목록 조회 실패: %s", e)
         return "error", None
 
 

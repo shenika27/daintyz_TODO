@@ -592,10 +592,10 @@ class SettingsDialog(QDialog):
         self._notes_btn.setText("불러오는 중…")
 
         class _NotesWorker(QThread):
-            done = Signal(object)  # (status, ReleaseNotes | None)
+            done = Signal(object)  # (status, list[ReleaseNotes] | None)
 
             def run(self):
-                self.done.emit(update_service.fetch_release_notes())
+                self.done.emit(update_service.fetch_release_notes_list())
 
         self._notes_worker = _NotesWorker(self)
         self._notes_worker.done.connect(self._on_notes_done)
@@ -604,13 +604,13 @@ class SettingsDialog(QDialog):
     def _on_notes_done(self, result) -> None:
         self._notes_btn.setEnabled(True)
         self._notes_btn.setText("패치노트")
-        status, notes = result
+        status, notes_list = result
         if status == "not_found":
             QMessageBox.information(
                 self, "패치노트", "아직 게시된 릴리즈가 없습니다."
             )
             return
-        if status != "ok" or notes is None:
+        if status != "ok" or not notes_list:
             QMessageBox.warning(
                 self, "패치노트",
                 "패치노트를 불러오지 못했습니다.\n네트워크 연결을 확인해 주세요.",
@@ -618,26 +618,56 @@ class SettingsDialog(QDialog):
             return
 
         dlg = QDialog(self)
-        dlg.setWindowTitle(f"패치노트 — v{notes.version}")
         dlg.resize(460, 400)
         v = QVBoxLayout(dlg)
 
-        head = QLabel(f"v{notes.version}"
-                      + (f"  ·  {notes.published_at}" if notes.published_at else ""))
+        head = QLabel()
         head.setStyleSheet("font-weight: bold;")
         v.addWidget(head)
 
         browser = QTextBrowser()
         browser.setOpenExternalLinks(True)
-        if notes.body:
-            browser.setMarkdown(notes.body)
-        else:
-            browser.setPlainText("이 릴리즈에는 패치노트가 없습니다.")
         v.addWidget(browser, 1)
+
+        state = {"index": 0}
+        nav = QHBoxLayout()
+        prev_btn = QPushButton("이전")
+        next_btn = QPushButton("다음")
+        nav.addWidget(prev_btn)
+        nav.addWidget(next_btn)
+        v.addLayout(nav)
 
         close = QPushButton("닫기")
         close.clicked.connect(dlg.accept)
         v.addWidget(close)
+
+        def render_notes() -> None:
+            notes = notes_list[state["index"]]
+            dlg.setWindowTitle(f"패치노트 — v{notes.version}")
+            head.setText(
+                f"v{notes.version}"
+                + (f"  ·  {notes.published_at}" if notes.published_at else "")
+            )
+            if notes.body:
+                browser.setMarkdown(notes.body)
+            else:
+                browser.setPlainText("이 릴리즈에는 패치노트가 없습니다.")
+            prev_btn.setEnabled(state["index"] < len(notes_list) - 1)
+            next_btn.setEnabled(state["index"] > 0)
+
+        def show_previous() -> None:
+            if state["index"] < len(notes_list) - 1:
+                state["index"] += 1
+                render_notes()
+
+        def show_next() -> None:
+            if state["index"] > 0:
+                state["index"] -= 1
+                render_notes()
+
+        prev_btn.clicked.connect(show_previous)
+        next_btn.clicked.connect(show_next)
+        render_notes()
         dlg.exec()
 
     # ── 반복 할일 탭 ────────────────────────────────────────
