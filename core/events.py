@@ -47,5 +47,7 @@ class EventBus(QObject):
     bubble_closed = Signal()
     # 말풍선(투두)이 열렸을 때 — 캐릭터 목록-열림 이미지 전환 트리거
     bubble_opened = Signal()
+    # 그리드/패널이 클릭되어 캐릭터도 같은 묶음으로 전면에 올라와야 할 때
+    grid_attention_requested = Signal()
     # '할일 n개' 풍선 표시 설정이 바뀌었을 때 (True=표시) — 즉시 동기화 트리거
     todo_count_bubble_changed = Signal(bool)

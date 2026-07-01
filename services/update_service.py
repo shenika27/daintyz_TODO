@@ -61,10 +61,13 @@ def current_version() -> str:
         return "0.0.0"
 
 
-def check_update() -> UpdateInfo | None:
-    """최신 version.json 을 읽어, 현재보다 새 버전이면 UpdateInfo 반환. 아니면 None."""
+def check_update() -> tuple[str, UpdateInfo | None]:
+    """최신 version.json 을 읽어 업데이트 확인 결과를 (status, info) 로 반환.
+
+    status: "update"(새 버전 있음) / "latest"(최신 버전) / "error"(네트워크·기타 오류).
+    """
     if not UPDATE_CHECK_URL:
-        return None
+        return "error", None
     import urllib.request
 
     try:
@@ -77,11 +80,11 @@ def check_update() -> UpdateInfo | None:
         latest: str = data["version"]
         url: str = data["download_url"]
         if _parse_version(latest) > _parse_version(current_version()):
-            return UpdateInfo(version=latest, download_url=url)
-        return None
+            return "update", UpdateInfo(version=latest, download_url=url)
+        return "latest", None
     except Exception as e:  # noqa: BLE001
         log.warning("업데이트 확인 실패: %s", e)
-        return None
+        return "error", None
 
 
 def fetch_release_notes() -> tuple[str, ReleaseNotes | None]:

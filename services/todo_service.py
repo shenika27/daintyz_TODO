@@ -3,7 +3,8 @@
 UI 는 이 서비스만 호출하고, 변경 후엔 EventBus.todos_changed 로 통지한다.
 삭제 규칙:
   - 반복 생성분(recurring_id 있음) → 삭제 대신 hide(=1) (tombstone)
-  - 일반 할일 → 진짜 DELETE, 단 직전 1건은 메모리에 보관해 revert 가능
+  - 일반 할일 → 진짜 DELETE
+  - 삭제/밀린할일 일괄 작업은 직전 1건을 메모리에 보관해 revert 가능
 """
 from __future__ import annotations
 
@@ -20,7 +21,7 @@ class TodoService:
         self._repo = todo_repo
         self._recurring = recurring_service
         self._events = events
-        # 되돌리기 버퍼: ('delete', Todo) 또는 ('hide', todo_id)
+        # 되돌리기 버퍼: ('delete', Todo) / ('hide', todo_id) / ('restore', list[Todo])
         self._undo: tuple[str, object] | None = None
 
     # ── 조회 ────────────────────────────────────────────────
@@ -48,6 +49,10 @@ class TodoService:
     def overdue_counts(self, today_iso: str) -> list[tuple[str, int]]:
         """오늘 이전 미완료 할일을 날짜별 개수로(밀린 할일 패널용)."""
         return self._repo.incomplete_counts_before(today_iso)
+
+    def movable_overdue_count(self, today_iso: str) -> int:
+        """오늘로 옮길 수 있는 미완료 일반 할일 개수(반복 회차 제외)."""
+        return self._repo.count_incomplete_regular_before(today_iso)
 
     def is_idle(self, hours: int) -> bool:
         """마지막 할일 활동(생성/수정)이 hours 시간 이상 지났으면 True. 0=항상 False."""
@@ -83,6 +88,9 @@ class TodoService:
         t = self._repo.get(todo_id)
         if not t or not content:
             return
+        if content == t.content:
+            return
+        self._set_restore_undo([t])
         self._repo.set_content(todo_id, content)
         self._notify(t.due_date)
 
@@ -103,6 +111,58 @@ class TodoService:
         self._notify(old_iso)
         if new_iso != old_iso:
             self._notify(new_iso)
+
+    def complete_incomplete_for_date(self, iso: str) -> int:
+        """밀린할일 패널용: 해당 날짜의 미완료 할일을 모두 완료 처리."""
+        snapshot = self._repo.incomplete_for_date(iso)
+        if not snapshot:
+            return 0
+        count = self._repo.complete_incomplete_for_date(iso)
+        if count:
+            self._set_restore_undo(snapshot)
+            self._notify(iso)
+        return count
+
+    def complete_all_overdue(self) -> int:
+        """밀린할일 패널용: 오늘 이전 미완료 할일을 모두 완료 처리."""
+        today_iso = date.today().isoformat()
+        snapshot = self._repo.incomplete_before(today_iso)
+        if not snapshot:
+            return 0
+        count, changed_dates = self._repo.complete_incomplete_before(today_iso)
+        if count:
+            self._set_restore_undo(snapshot)
+            self._notify_many(changed_dates)
+        return count
+
+    def move_incomplete_regular_to_today(self, iso: str) -> int:
+        """밀린할일 패널용: 해당 날짜의 미완료 일반 할일만 오늘로 옮긴다."""
+        today_iso = date.today().isoformat()
+        snapshot = self._repo.incomplete_regular_for_date(iso)
+        if not snapshot:
+            return 0
+        count = self._repo.move_incomplete_regular_to_date(iso, today_iso)
+        if count:
+            self._set_restore_undo(snapshot)
+            self._notify(iso)
+            if today_iso != iso:
+                self._notify(today_iso)
+        return count
+
+    def move_all_overdue_regular_to_today(self) -> int:
+        """밀린할일 패널용: 오늘 이전 미완료 일반 할일을 모두 오늘로 옮긴다."""
+        today_iso = date.today().isoformat()
+        snapshot = self._repo.incomplete_regular_before(today_iso)
+        if not snapshot:
+            return 0
+        count, changed_dates = self._repo.move_incomplete_regular_before_to_date(
+            today_iso, today_iso
+        )
+        if count:
+            self._set_restore_undo(snapshot)
+            self._notify_many(changed_dates)
+            self._notify(today_iso)
+        return count
 
     def reorder(self, iso: str, ordered_ids: list[int]) -> None:
         self._repo.reorder(iso, ordered_ids)
@@ -132,19 +192,34 @@ class TodoService:
             self._repo.unhide(payload)  # type: ignore[arg-type]
             t = self._repo.get(payload)  # type: ignore[arg-type]
             iso = t.due_date if t else None
-        else:
+            if iso:
+                self._notify(iso)
+        elif kind == "delete":
             t: Todo = payload  # type: ignore[assignment]
             self._repo.insert_raw(t)
-            iso = t.due_date
+            self._notify(t.due_date)
+        elif kind == "restore":
+            snapshot: list[Todo] = payload  # type: ignore[assignment]
+            current = self._repo.list_by_ids([t.id for t in snapshot])
+            self._repo.restore_existing(snapshot)
+            dates = {t.due_date for t in snapshot}
+            dates.update(t.due_date for t in current)
+            self._notify_many(sorted(dates))
         self._events.delete_undo_available.emit(False)
-        if iso:
-            self._notify(iso)
 
     # ── 내부 ────────────────────────────────────────────────
     def delete_recurring_todos(self, rule_id: int) -> None:
         """반복 규칙으로 생성된 할일 전체 삭제 후 화면 갱신."""
         self._repo.delete_by_recurring(rule_id)
         self._notify(date.today().isoformat())
+
+    def _set_restore_undo(self, snapshot: list[Todo]) -> None:
+        self._undo = ("restore", snapshot)
+        self._events.delete_undo_available.emit(True)
+
+    def _notify_many(self, dates) -> None:
+        for iso in dict.fromkeys(dates):
+            self._notify(iso)
 
     def _notify(self, iso: str) -> None:
         self._events.todos_changed.emit(iso)

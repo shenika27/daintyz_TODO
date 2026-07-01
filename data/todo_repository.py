@@ -57,6 +57,63 @@ class TodoRepository:
         ).fetchall()
         return [(r["due_date"], r["c"]) for r in rows]
 
+    def count_incomplete_regular_before(self, iso: str) -> int:
+        """주어진 날짜 이전(< iso)의 미완료 일반 할일 개수."""
+        r = self.conn.execute(
+            "SELECT COUNT(*) FROM todos "
+            "WHERE due_date < ? AND completed = 0 AND hidden = 0 AND recurring_id IS NULL",
+            (iso,),
+        ).fetchone()
+        return r[0] if r else 0
+
+    def incomplete_for_date(self, iso: str) -> list[Todo]:
+        """해당 날짜의 미완료·미숨김 할일 스냅샷."""
+        rows = self.conn.execute(
+            "SELECT * FROM todos WHERE due_date = ? AND completed = 0 AND hidden = 0 "
+            "ORDER BY sort_order, id",
+            (iso,),
+        ).fetchall()
+        return [Todo.from_row(r) for r in rows]
+
+    def incomplete_before(self, iso: str) -> list[Todo]:
+        """주어진 날짜 이전(< iso)의 미완료·미숨김 할일 스냅샷."""
+        rows = self.conn.execute(
+            "SELECT * FROM todos WHERE due_date < ? AND completed = 0 AND hidden = 0 "
+            "ORDER BY due_date, sort_order, id",
+            (iso,),
+        ).fetchall()
+        return [Todo.from_row(r) for r in rows]
+
+    def incomplete_regular_for_date(self, iso: str) -> list[Todo]:
+        """해당 날짜의 미완료·미숨김 일반 할일 스냅샷."""
+        rows = self.conn.execute(
+            "SELECT * FROM todos "
+            "WHERE due_date = ? AND completed = 0 AND hidden = 0 AND recurring_id IS NULL "
+            "ORDER BY sort_order, id",
+            (iso,),
+        ).fetchall()
+        return [Todo.from_row(r) for r in rows]
+
+    def incomplete_regular_before(self, iso: str) -> list[Todo]:
+        """주어진 날짜 이전(< iso)의 미완료·미숨김 일반 할일 스냅샷."""
+        rows = self.conn.execute(
+            "SELECT * FROM todos "
+            "WHERE due_date < ? AND completed = 0 AND hidden = 0 AND recurring_id IS NULL "
+            "ORDER BY due_date, sort_order, id",
+            (iso,),
+        ).fetchall()
+        return [Todo.from_row(r) for r in rows]
+
+    def list_by_ids(self, todo_ids: list[int]) -> list[Todo]:
+        if not todo_ids:
+            return []
+        placeholders = ",".join("?" for _ in todo_ids)
+        rows = self.conn.execute(
+            f"SELECT * FROM todos WHERE id IN ({placeholders})",
+            tuple(todo_ids),
+        ).fetchall()
+        return [Todo.from_row(r) for r in rows]
+
     def get(self, todo_id: int) -> Todo | None:
         r = self.conn.execute(
             "SELECT * FROM todos WHERE id = ?", (todo_id,)
@@ -110,6 +167,35 @@ class TodoRepository:
         )
         self.conn.commit()
 
+    def complete_incomplete_for_date(self, iso: str) -> int:
+        """해당 날짜의 미완료·미숨김 할일을 모두 완료 처리하고 변경 개수를 반환."""
+        cur = self.conn.execute(
+            "UPDATE todos SET completed = 1, updated_at = ? "
+            "WHERE due_date = ? AND completed = 0 AND hidden = 0",
+            (_now(), iso),
+        )
+        self.conn.commit()
+        return cur.rowcount
+
+    def complete_incomplete_before(self, iso: str) -> tuple[int, list[str]]:
+        """주어진 날짜 이전의 미완료·미숨김 할일을 모두 완료 처리한다."""
+        rows = self.conn.execute(
+            "SELECT DISTINCT due_date FROM todos "
+            "WHERE due_date < ? AND completed = 0 AND hidden = 0 "
+            "ORDER BY due_date",
+            (iso,),
+        ).fetchall()
+        dates = [r["due_date"] for r in rows]
+        if not dates:
+            return 0, []
+        cur = self.conn.execute(
+            "UPDATE todos SET completed = 1, updated_at = ? "
+            "WHERE due_date < ? AND completed = 0 AND hidden = 0",
+            (_now(), iso),
+        )
+        self.conn.commit()
+        return cur.rowcount, dates
+
     def move(self, todo_id: int, new_iso: str, new_order: int | None = None) -> None:
         """날짜 간 이동(+선택적 정렬 위치)."""
         if new_order is None:
@@ -119,6 +205,59 @@ class TodoRepository:
             (new_iso, new_order, _now(), todo_id),
         )
         self.conn.commit()
+
+    def move_incomplete_regular_to_date(self, src_iso: str, dest_iso: str) -> int:
+        """미완료 일반 할일만 dest_iso 끝으로 옮기고 변경 개수를 반환.
+
+        반복 회차(recurring_id 있음)는 규칙과 화면 의미가 섞이지 않도록 이동하지 않는다.
+        """
+        rows = self.conn.execute(
+            "SELECT id FROM todos "
+            "WHERE due_date = ? AND completed = 0 AND hidden = 0 AND recurring_id IS NULL "
+            "ORDER BY sort_order, id",
+            (src_iso,),
+        ).fetchall()
+        if not rows:
+            return 0
+
+        next_order = self._next_order(dest_iso)
+        now = _now()
+        for offset, row in enumerate(rows):
+            self.conn.execute(
+                "UPDATE todos SET due_date = ?, sort_order = ?, updated_at = ? WHERE id = ?",
+                (dest_iso, next_order + offset, now, row["id"]),
+            )
+        self.conn.commit()
+        return len(rows)
+
+    def move_incomplete_regular_before_to_date(self, before_iso: str, dest_iso: str) -> tuple[int, list[str]]:
+        """before_iso 이전의 미완료 일반 할일을 dest_iso 끝으로 옮긴다."""
+        rows = self.conn.execute(
+            "SELECT id, due_date FROM todos "
+            "WHERE due_date < ? AND completed = 0 AND hidden = 0 AND recurring_id IS NULL "
+            "ORDER BY due_date, sort_order, id",
+            (before_iso,),
+        ).fetchall()
+        if not rows:
+            return 0, []
+
+        dates = []
+        seen = set()
+        for row in rows:
+            due = row["due_date"]
+            if due not in seen:
+                seen.add(due)
+                dates.append(due)
+
+        next_order = self._next_order(dest_iso)
+        now = _now()
+        for offset, row in enumerate(rows):
+            self.conn.execute(
+                "UPDATE todos SET due_date = ?, sort_order = ?, updated_at = ? WHERE id = ?",
+                (dest_iso, next_order + offset, now, row["id"]),
+            )
+        self.conn.commit()
+        return len(rows), dates
 
     def reorder(self, iso: str, ordered_ids: list[int]) -> None:
         """하루 안 순서 일괄 갱신."""
@@ -184,3 +323,25 @@ class TodoRepository:
         )
         self.conn.commit()
         return cur.lastrowid
+
+    def restore_existing(self, todos: list[Todo]) -> None:
+        """undo(되돌리기)용: 살아 있는 할일 행들을 스냅샷 상태로 되돌린다."""
+        now = _now()
+        for todo in todos:
+            self.conn.execute(
+                "UPDATE todos SET content = ?, due_date = ?, completed = ?, hidden = ?, "
+                "sort_order = ?, remind_at = ?, recurring_id = ?, updated_at = ? "
+                "WHERE id = ?",
+                (
+                    todo.content,
+                    todo.due_date,
+                    int(todo.completed),
+                    int(todo.hidden),
+                    todo.sort_order,
+                    todo.remind_at,
+                    todo.recurring_id,
+                    now,
+                    todo.id,
+                ),
+            )
+        self.conn.commit()

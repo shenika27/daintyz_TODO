@@ -6,7 +6,7 @@ apply_theme)을 제공한다. 위치/높이는 말풍선이 잡아준다(BubbleW
 """
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QEvent, QTimer, Qt
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -69,6 +69,19 @@ class _PanelBase(QWidget):
     def apply_theme(self) -> None:
         mode = self._settings.get(policies.KEY_THEME, "system")
         self.setStyleSheet(theme.qss(mode))
+
+    def event(self, e) -> bool:
+        if e.type() == QEvent.Type.WindowActivate:
+            self._request_companion_raise()
+        return super().event(e)
+
+    def mousePressEvent(self, e) -> None:
+        self._request_companion_raise()
+        super().mousePressEvent(e)
+
+    def _request_companion_raise(self) -> None:
+        self._events.grid_attention_requested.emit()
+        QTimer.singleShot(0, self.raise_)
 
     def reload(self) -> None:  # pragma: no cover - 자식이 구현
         raise NotImplementedError

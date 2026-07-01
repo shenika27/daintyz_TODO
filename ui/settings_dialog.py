@@ -67,12 +67,14 @@ class SettingsDialog(QDialog):
         self.resize(420, 480)
 
         tabs = QTabWidget()
-        tabs.addTab(self._build_general(), "일반")
+        tabs.addTab(self._build_behavior(), "동작")
+        tabs.addTab(self._build_display(), "화면")
         # 캐릭터 이미지 변경이 허용된 빌드에서만 '이미지' 탭 노출
         if feature_flags.character_edit_enabled():
             tabs.addTab(self._build_images(), "이미지")
         tabs.addTab(self._build_shortcuts(), "단축키")
         tabs.addTab(self._build_recurring(), "반복 할일")
+        tabs.addTab(self._build_maintenance(), "관리")
 
         root = QVBoxLayout(self)
         root.addWidget(tabs)
@@ -113,19 +115,10 @@ class SettingsDialog(QDialog):
         form.addRow(save)
         return w
 
-    # ── 일반 탭 ─────────────────────────────────────────────
-    def _build_general(self) -> QWidget:
+    # ── 동작 탭 ─────────────────────────────────────────────
+    def _build_behavior(self) -> QWidget:
         w = QWidget()
         form = QFormLayout(w)
-
-        # 캐릭터 크기(%)
-        self._char_scale = QSpinBox()
-        self._char_scale.setRange(50, 200)
-        self._char_scale.setSingleStep(10)
-        self._char_scale.setSuffix(" %")
-        self._char_scale.setValue(int(self._settings.get(policies.KEY_CHAR_SCALE, "100") or "100"))
-        self._char_scale.valueChanged.connect(self._on_scale_changed)
-        form.addRow("캐릭터 크기", self._char_scale)
 
         # 비활성 판정 시간 (0 = 기능 끔)
         self._idle_hours = QSpinBox()
@@ -147,16 +140,6 @@ class SettingsDialog(QDialog):
         )
         form.addRow("밀린 할일 위치", self._panel_side)
 
-        # 미완료 처리
-        self._incomplete = QComboBox()
-        self._incomplete.addItem("그 날짜에 유지 (keep)", "keep")
-        self._incomplete.addItem("다음 날로 이월 (rollover)", "rollover")
-        self._select_data(self._incomplete, self._settings.get(policies.KEY_INCOMPLETE, "keep"))
-        self._incomplete.currentIndexChanged.connect(
-            lambda: self._settings.set(policies.KEY_INCOMPLETE, self._incomplete.currentData())
-        )
-        form.addRow("미완료 할일", self._incomplete)
-
         # 타이머 −/+ 증감 간격 (1분 미만은 항상 5초 고정)
         self._timer_step = QComboBox()
         for label, secs in (
@@ -174,6 +157,22 @@ class SettingsDialog(QDialog):
             )
         )
         form.addRow("타이머 증감 간격", self._timer_step)
+
+        return w
+
+    # ── 화면 탭 ─────────────────────────────────────────────
+    def _build_display(self) -> QWidget:
+        w = QWidget()
+        form = QFormLayout(w)
+
+        # 캐릭터 크기(%)
+        self._char_scale = QSpinBox()
+        self._char_scale.setRange(50, 200)
+        self._char_scale.setSingleStep(10)
+        self._char_scale.setSuffix(" %")
+        self._char_scale.setValue(int(self._settings.get(policies.KEY_CHAR_SCALE, "100") or "100"))
+        self._char_scale.valueChanged.connect(self._on_scale_changed)
+        form.addRow("캐릭터 크기", self._char_scale)
 
         # 폰트 서체
         font_row = QHBoxLayout()
@@ -227,6 +226,13 @@ class SettingsDialog(QDialog):
             lambda on: self._settings.set_bool(policies.KEY_BUBBLE_ANIMATION, on)
         )
         form.addRow("", self._anim_cb)
+
+        return w
+
+    # ── 관리 탭 ─────────────────────────────────────────────
+    def _build_maintenance(self) -> QWidget:
+        w = QWidget()
+        form = QFormLayout(w)
 
         # 자동시작
         self._autostart_cb = QCheckBox("부팅 시 자동 시작")
@@ -542,7 +548,7 @@ class SettingsDialog(QDialog):
         self._update_status.setText("확인 중…")
 
         class _CheckWorker(QThread):
-            done = Signal(object)  # UpdateInfo | None
+            done = Signal(object)  # (status, UpdateInfo | None)
 
             def run(self):
                 self.done.emit(update_service.check_update())
@@ -551,10 +557,19 @@ class SettingsDialog(QDialog):
         self._check_worker.done.connect(self._on_check_done)
         self._check_worker.start()
 
-    def _on_check_done(self, info) -> None:
+    def _on_check_done(self, result) -> None:
         self._check_btn.setEnabled(True)
-        if info is None:
+        status, info = result
+        if status == "latest":
             self._update_status.setText("최신 버전입니다.")
+            return
+        if status != "update" or info is None:
+            self._update_status.setText("확인 실패")
+            QMessageBox.warning(
+                self,
+                "업데이트",
+                "업데이트 정보를 불러오지 못했습니다.\n네트워크 연결을 확인해 주세요.",
+            )
             return
         self._update_status.setText(f"새 버전 v{info.version} 발견!")
         if QMessageBox.question(

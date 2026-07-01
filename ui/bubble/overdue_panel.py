@@ -11,7 +11,10 @@ from datetime import date
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QHBoxLayout,
     QLabel,
+    QMenu,
+    QPushButton,
     QScrollArea,
     QVBoxLayout,
     QWidget,
@@ -24,16 +27,45 @@ __all__ = ["PANEL_WIDTH", "OverduePanel"]
 
 
 class _OverdueRow(QLabel):
-    def __init__(self, iso: str, count: int, open_day_cb, parent=None):
+    def __init__(
+        self,
+        iso: str,
+        count: int,
+        open_day_cb,
+        complete_cb,
+        move_today_cb,
+        parent=None,
+    ):
         d = date.fromisoformat(iso)
         super().__init__(f"{policies.fmt_md(d)}: {count}개", parent)
         self.iso = iso
         self._open_day_cb = open_day_cb
+        self._complete_cb = complete_cb
+        self._move_today_cb = move_today_cb
         self.setObjectName("overdueRow")
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
-    def mousePressEvent(self, _e) -> None:
-        self._open_day_cb(self.iso)
+    def mousePressEvent(self, e) -> None:
+        if e.button() == Qt.MouseButton.LeftButton:
+            self._show_action_menu(e.globalPosition().toPoint())
+            return
+        super().mousePressEvent(e)
+
+    def contextMenuEvent(self, e) -> None:
+        self._show_action_menu(e.globalPos())
+
+    def _show_action_menu(self, global_pos) -> None:
+        menu = QMenu(self)
+        open_day = menu.addAction("날짜 보기")
+        complete = menu.addAction("완료 처리")
+        move_today = menu.addAction("오늘로 옮기기")
+        chosen = menu.exec(global_pos)
+        if chosen == open_day:
+            self._open_day_cb(self.iso)
+        elif chosen == complete:
+            self._complete_cb(self.iso)
+        elif chosen == move_today:
+            self._move_today_cb(self.iso)
 
 
 class OverduePanel(_PanelBase):
@@ -49,6 +81,18 @@ class OverduePanel(_PanelBase):
         self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self._vbox.addWidget(self._scroll, 1)
+
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(4)
+        self._complete_all_btn = QPushButton("모두 완료")
+        self._complete_all_btn.setToolTip("오늘 이전 미완료 할일을 모두 완료 처리합니다.")
+        self._complete_all_btn.clicked.connect(self._complete_all)
+        btn_row.addWidget(self._complete_all_btn)
+        self._move_all_btn = QPushButton("모두 오늘로")
+        self._move_all_btn.setToolTip("반복할일을 제외한 밀린 일반 할일을 오늘로 옮깁니다.")
+        self._move_all_btn.clicked.connect(self._move_all_to_today)
+        btn_row.addWidget(self._move_all_btn)
+        self._vbox.addLayout(btn_row)
 
         self._events.todos_changed.connect(self._on_data)
         self.apply_theme()
@@ -69,7 +113,11 @@ class OverduePanel(_PanelBase):
         lay.setSpacing(3)
         lay.setAlignment(Qt.AlignmentFlag.AlignTop)
 
-        rows = self._service.overdue_counts(date.today().isoformat())
+        today_iso = date.today().isoformat()
+        rows = self._service.overdue_counts(today_iso)
+        movable_count = self._service.movable_overdue_count(today_iso)
+        self._complete_all_btn.setEnabled(bool(rows))
+        self._move_all_btn.setEnabled(movable_count > 0)
         if not rows:
             empty = QLabel("없음")
             empty.setObjectName("emptyText")
@@ -77,5 +125,25 @@ class OverduePanel(_PanelBase):
             lay.addWidget(empty)
         else:
             for iso, cnt in rows:
-                lay.addWidget(_OverdueRow(iso, cnt, self._open_day_cb))
+                lay.addWidget(
+                    _OverdueRow(
+                        iso,
+                        cnt,
+                        self._open_day_cb,
+                        self._complete_date,
+                        self._move_date_to_today,
+                    )
+                )
         self._scroll.setWidget(inner)
+
+    def _complete_date(self, iso: str) -> None:
+        self._service.complete_incomplete_for_date(iso)
+
+    def _move_date_to_today(self, iso: str) -> None:
+        self._service.move_incomplete_regular_to_today(iso)
+
+    def _complete_all(self) -> None:
+        self._service.complete_all_overdue()
+
+    def _move_all_to_today(self) -> None:
+        self._service.move_all_overdue_regular_to_today()

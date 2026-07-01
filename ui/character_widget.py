@@ -137,6 +137,7 @@ class CharacterWidget(QWidget):
         # 그리드 열림/닫힘 → open/closed 리액션(3초) 후 기본 이미지 복귀
         self._events.bubble_opened.connect(self._on_bubble_opened)
         self._events.bubble_closed.connect(self._on_bubble_closed)
+        self._events.grid_attention_requested.connect(self._raise_with_grids)
 
         # 비활성 상태는 할일 변경 없이도 시간 경과로 바뀌므로 1분마다 재확인
         self._idle_timer = QTimer(self)
@@ -358,6 +359,11 @@ class CharacterWidget(QWidget):
     def _on_todo_bubble_clicked(self) -> None:
         """'할일 n개' 풍선 클릭: 그리드를 다시 연다(캐릭터 클릭과 동일)."""
         self.toggle_bubble()
+
+    def _raise_with_grids(self) -> None:
+        """말풍선/패널을 클릭했을 때 캐릭터 창도 같은 묶음으로 전면에 올린다."""
+        if self.isVisible():
+            self.raise_()
 
     def _total_incomplete_count(self) -> int:
         return self._service.total_incomplete_count()

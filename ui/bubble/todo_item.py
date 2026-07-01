@@ -290,9 +290,13 @@ class TodoItem(QWidget):
         else:
             super().mousePressEvent(e)
 
-    # ── 우클릭 메뉴(타이머 + 복제) ──────────────────────────
+    # ── 우클릭 메뉴(편집 + 타이머 + 복제) ───────────────────
     def _show_context_menu(self, global_pos: QPoint) -> None:
         menu = QMenu(self)
+        edit = menu.addAction("편집")
+        edit.triggered.connect(self._enter_edit)
+        menu.addSeparator()
+
         timer_running = self._timer is not None and self._timer.is_active(self.todo.id)
         if timer_running:
             act = menu.addAction("타이머 해제")
@@ -304,13 +308,10 @@ class TodoItem(QWidget):
             dup = menu.addAction("복제")
             dup.triggered.connect(lambda: self._service.duplicate(self.todo.id))
         # 주간(compact) 뷰는 hover 삭제 아이콘이 없으므로 메뉴에 '삭제' 제공
-        # (편집은 일별 뷰에서)
         if self._compact:
             menu.addSeparator()
             rm = menu.addAction("삭제")
             rm.triggered.connect(lambda: self.request_remove.emit(self.todo.id))
-        if menu.isEmpty():
-            return
         menu.exec(global_pos)
 
     def _set_timer(self) -> None:

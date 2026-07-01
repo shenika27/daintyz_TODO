@@ -253,8 +253,8 @@ class AppController:
             found = Signal(object)
 
             def run(self):
-                info = update_service.check_update()
-                if info:
+                status, info = update_service.check_update()
+                if status == "update" and info:
                     self.found.emit(info)
 
         self._update_worker = _Worker(self.app)

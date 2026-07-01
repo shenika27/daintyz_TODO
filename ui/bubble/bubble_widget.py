@@ -349,6 +349,19 @@ class BubbleWidget(QWidget):
         if view_changed and self._anim_enabled() and self.isVisible():
             self._play_view_fade()
 
+    def event(self, e) -> bool:
+        if e.type() == QEvent.Type.WindowActivate:
+            self._request_companion_raise()
+        return super().event(e)
+
+    def mousePressEvent(self, e) -> None:
+        self._request_companion_raise()
+        super().mousePressEvent(e)
+
+    def _request_companion_raise(self) -> None:
+        self._events.grid_attention_requested.emit()
+        QTimer.singleShot(0, self.raise_)
+
     def _play_view_fade(self) -> None:
         """일→주→월 등 보기 전환 시 새 뷰 영역을 0→1 로 부드럽게 페이드 인(#13)."""
         eff = QGraphicsOpacityEffect(self._view_holder)
