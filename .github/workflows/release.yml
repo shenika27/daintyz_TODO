@@ -98,7 +98,7 @@ jobs:
         if: steps.check.outputs.skip != 'true'
         shell: pwsh
         run: |
-          $exe = "dist\CharacterTodo-onefile-${{ steps.ver.outputs.version }}.exe"
+          $exe = "dist\CharacterTodo.exe"
           if (-not (Test-Path $exe)) {
             Write-Error "빌드 산출물 없음: $exe"
             exit 1
@@ -112,7 +112,7 @@ jobs:
         run: |
           $ver = "${{ steps.ver.outputs.version }}"
           $repo = "${{ github.repository }}"
-          $dlUrl = "https://github.com/$repo/releases/download/v$ver/CharacterTodo-onefile-$ver.exe"
+          $dlUrl = "https://github.com/$repo/releases/download/v$ver/CharacterTodo.exe"
           $json = [ordered]@{ version = $ver; download_url = $dlUrl } | ConvertTo-Json
           $json | Set-Content -Encoding UTF8 dist\version.json
           Write-Host "version.json 생성됨:"
@@ -138,7 +138,7 @@ jobs:
           if (-not $notes) { $notes = "이 버전의 변경 내용이 CHANGELOG.md 에 없습니다." }
           $footer = "`n`n---`n### 설치 / 업데이트`n" +
                     "- 앱 내: 설정 → 앱 업데이트 → 업데이트 확인`n" +
-                    "- 수동: 아래 ``CharacterTodo-onefile-$ver.exe`` 를 받아 기존 파일과 교체"
+                    "- 수동: 아래 ``CharacterTodo.exe`` 를 받아 기존 파일과 교체"
           ($notes + $footer) | Set-Content -Encoding UTF8 dist\RELEASE_NOTES.md
           Write-Host "릴리즈 노트:"
           Get-Content dist\RELEASE_NOTES.md
@@ -151,7 +151,7 @@ jobs:
           name: "v${{ steps.ver.outputs.version }}"
           body_path: dist/RELEASE_NOTES.md                 # CHANGELOG 에서 뽑은 패치노트
           files: |
-            dist/CharacterTodo-onefile-${{ steps.ver.outputs.version }}.exe
+            dist/CharacterTodo.exe
             dist/version.json
           draft: false
           prerelease: false
