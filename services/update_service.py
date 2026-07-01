@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -201,8 +202,30 @@ def _dir_writable(path: Path) -> bool:
         return False
 
 
+def _canonical_exe_path(current_exe: Path) -> Path:
+    return current_exe.with_name("CharacterTodo.exe")
+
+
+def ensure_canonical_exe_copy() -> Path | None:
+    if not getattr(sys, "frozen", False):
+        return None
+
+    current_exe = Path(sys.executable).resolve()
+    target_exe = _canonical_exe_path(current_exe)
+    if current_exe == target_exe:
+        return target_exe
+
+    try:
+        shutil.copy2(current_exe, target_exe)
+        log.info("고정 실행 파일명으로 복사 완료: %s", target_exe)
+        return target_exe
+    except OSError as e:
+        log.warning("고정 실행 파일명 복사 실패(%s): %s", target_exe, e)
+        return None
+
+
 def apply_and_restart(new_exe: Path) -> None:
-    """현재 EXE 를 새 파일로 교체하고 재시작.
+    """새 EXE 를 고정 파일명(CharacterTodo.exe)으로 적용하고 재시작.
 
     PyInstaller onefile 빌드에서만 동작. 개발 실행 시에는 건너뜁니다.
     실행 중인 EXE 는 교체 불가(Windows 잠금)이므로 현재 프로세스 종료를
@@ -216,8 +239,9 @@ def apply_and_restart(new_exe: Path) -> None:
         return
 
     current_exe = Path(sys.executable).resolve()
-    if not _dir_writable(current_exe.parent):
-        raise UpdateNeedsManualInstall(str(current_exe.parent))
+    target_exe = _canonical_exe_path(current_exe)
+    if not _dir_writable(target_exe.parent):
+        raise UpdateNeedsManualInstall(str(target_exe.parent))
 
     pid = os.getpid()
 
@@ -234,7 +258,8 @@ def apply_and_restart(new_exe: Path) -> None:
         'set "_PYI_APPLICATION_HOME_DIR="',
         'set "_PYI_ARCHIVE_INDEX="',
         'set "_PYI_PARENT_PROCESS_LEVEL="',
-        f'set "TARGET={current_exe}"',
+        f'set "OLD={current_exe}"',
+        f'set "TARGET={target_exe}"',
         f'set "NEW={new_exe}"',
         ":wait_loop",
         f'tasklist /FI "PID eq {pid}" /NH 2>nul | findstr /I "CharacterTodo" >nul',
@@ -248,10 +273,11 @@ def apply_and_restart(new_exe: Path) -> None:
         "goto copy_loop",
         ":copied",
         'del /F /Q "%NEW%" >nul 2>&1',
+        'if /I not "%OLD%"=="%TARGET%" del /F /Q "%OLD%" >nul 2>&1',
         'start "" "%TARGET%"',
         "goto cleanup",
         ":copy_failed",
-        'start "" "%TARGET%"',
+        'start "" "%OLD%"',
         ":cleanup",
         'del /F /Q "%~f0"',
     ]

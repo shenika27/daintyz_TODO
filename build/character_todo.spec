@@ -57,7 +57,7 @@ coll = COLLECT(
     name="CharacterTodo",   # 결과 폴더: dist\CharacterTodo\
 )
 
-# onefile: 단독 실행 단일 exe(dist\CharacterTodo-onefile.exe). 설치·압축해제 없이 그 자체로 실행.
+# onefile: 단독 실행 단일 exe(dist\CharacterTodo.exe). 설치·압축해제 없이 그 자체로 실행.
 # 단, 실행할 때마다 임시폴더 추출이 있어 시작이 느리다(빠른 시작은 onedir zip/설치판 사용).
 exe_onefile = EXE(
     pyz,
@@ -66,7 +66,7 @@ exe_onefile = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name=f"CharacterTodo-onefile-{_version}",
+    name="CharacterTodo",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

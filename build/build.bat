@@ -93,11 +93,11 @@ if not exist "dist\CharacterTodo\CharacterTodo.exe" (
     echo Expected dist\CharacterTodo\ folder was not created. See %LOG%
     goto :fail
 )
-if not exist "dist\CharacterTodo-onefile-%VERSION%.exe" (
-    echo Expected dist\CharacterTodo-onefile-%VERSION%.exe was not created. See %LOG%
+if not exist "dist\CharacterTodo.exe" (
+    echo Expected dist\CharacterTodo.exe was not created. See %LOG%
     goto :fail
 )
-echo     -^> dist\CharacterTodo\ (onedir) + dist\CharacterTodo-onefile-%VERSION%.exe created
+echo     -^> dist\CharacterTodo\ (onedir) + dist\CharacterTodo.exe created
 
 echo [5/7] Packaging portable ZIP (무설치판)
 set "PORTABLE=dist\CharacterTodo-portable-%VERSION%.zip"
@@ -135,14 +135,14 @@ if "!ISCC!"=="" (
 echo [7/7] Finalizing dist (중간 onedir 폴더 정리)
 REM zip·설치판으로 이미 패키징된 중간 onedir 폴더는 제거(최종 산출물만 dist 에 남김)
 if exist "dist\CharacterTodo" rmdir /S /Q "dist\CharacterTodo"
-echo     -^> dist\CharacterTodo-onefile-%VERSION%.exe  (단독 실행, 설치/압축해제 불필요 · 시작은 느림)
+echo     -^> dist\CharacterTodo.exe  (단독 실행, 설치/압축해제 불필요 · 시작은 느림)
 
 :done
 echo.
 echo ================ Build result ================
 call :report "무설치판(zip) " "dist\CharacterTodo-portable-%VERSION%.zip" "빠른 시작"
 call :report "설치판(exe)   " "dist\CharacterTodo-Setup-%VERSION%.exe" "빠른 시작, Inno Setup 필요"
-call :report "onefile(exe)  " "dist\CharacterTodo-onefile-%VERSION%.exe" "단독 실행, 시작 느림"
+call :report "onefile(exe)  " "dist\CharacterTodo.exe" "단독 실행, 시작 느림"
 echo =============================================
 echo See %LOG% for full output.
 pause
