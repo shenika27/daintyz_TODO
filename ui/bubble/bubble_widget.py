@@ -84,7 +84,7 @@ class _ResizeGrip(QSizeGrip):
 
 _ORDER = ["day", "week", "month"]
 _WIDTH = {"day": 240, "week": 920, "month": 470}
-_GAP = 10
+_GAP = 6
 # 밀린 할일 패널 ↔ 말풍선 간격. 말풍선·패널 각각 8px 투명 그림자 여백이 있어
 # 음수로 그 여백을 겹치게 해야 실제 보이는 간격이 좁아진다(8 + gap + 8 = 보이는 간격).
 _PANEL_GAP = -10  # 보이는 간격 ≈ 6px (기존 ≈18px의 1/3)

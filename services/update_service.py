@@ -84,8 +84,13 @@ def check_update() -> UpdateInfo | None:
         return None
 
 
-def fetch_release_notes() -> ReleaseNotes | None:
-    """최신 릴리즈의 패치노트(본문)를 읽어온다. 실패 시 None."""
+def fetch_release_notes() -> tuple[str, ReleaseNotes | None]:
+    """최신 릴리즈 패치노트를 (status, notes) 로 반환.
+
+    status: "ok"(notes 있음) / "not_found"(아직 게시된 릴리즈 없음, HTTP 404)
+            / "error"(네트워크·기타 오류).
+    """
+    import urllib.error
     import urllib.request
 
     try:
@@ -99,14 +104,20 @@ def fetch_release_notes() -> ReleaseNotes | None:
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode())
         tag = data.get("tag_name") or data.get("name") or ""
-        return ReleaseNotes(
+        return "ok", ReleaseNotes(
             version=tag.lstrip("v"),
             published_at=(data.get("published_at") or "")[:10],
             body=(data.get("body") or "").strip(),
         )
+    except urllib.error.HTTPError as e:
+        # 404 = 아직 릴리즈가 없음(리포는 정상). 그 외 HTTP 오류는 error 로.
+        if e.code == 404:
+            return "not_found", None
+        log.warning("패치노트 조회 실패(HTTP %s): %s", e.code, e)
+        return "error", None
     except Exception as e:  # noqa: BLE001
         log.warning("패치노트 조회 실패: %s", e)
-        return None
+        return "error", None
 
 
 def download_update(

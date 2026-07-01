@@ -559,7 +559,7 @@ class SettingsDialog(QDialog):
         self._notes_btn.setText("불러오는 중…")
 
         class _NotesWorker(QThread):
-            done = pyqtSignal(object)  # ReleaseNotes | None
+            done = pyqtSignal(object)  # (status, ReleaseNotes | None)
 
             def run(self):
                 self.done.emit(update_service.fetch_release_notes())
@@ -568,12 +568,19 @@ class SettingsDialog(QDialog):
         self._notes_worker.done.connect(self._on_notes_done)
         self._notes_worker.start()
 
-    def _on_notes_done(self, notes) -> None:
+    def _on_notes_done(self, result) -> None:
         self._notes_btn.setEnabled(True)
         self._notes_btn.setText("패치노트")
-        if notes is None:
+        status, notes = result
+        if status == "not_found":
             QMessageBox.information(
-                self, "패치노트", "패치노트를 불러올 수 없습니다.\n(릴리즈가 아직 없거나 네트워크 오류)"
+                self, "패치노트", "아직 게시된 릴리즈가 없습니다."
+            )
+            return
+        if status != "ok" or notes is None:
+            QMessageBox.warning(
+                self, "패치노트",
+                "패치노트를 불러오지 못했습니다.\n네트워크 연결을 확인해 주세요.",
             )
             return
 
