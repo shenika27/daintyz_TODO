@@ -6,8 +6,9 @@ name: Build & Release
 on:
   push:
     branches: [main]
-    paths: ['VERSION']       # VERSION 이 포함된 push 일 때만 실행
-  workflow_dispatch:          # 필요 시 Actions 탭에서 수동 실행
+    paths: ['VERSION']       # 평소: VERSION 이 바뀐 채 main 에 push 되면 자동 배포
+    tags: ['v*']             # 수동 재배포: git push origin v0.4.8 로 강제 실행
+  workflow_dispatch:          # Actions 탭에서 수동 실행
 
 jobs:
   build:
@@ -35,14 +36,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $tag = "v${{ steps.ver.outputs.version }}"
-          gh release view $tag 2>$null | Out-Null
-          if ($LASTEXITCODE -eq 0) {
+          # 같은 버전 '릴리즈'가 이미 있으면 중복 빌드 건너뜀(태그만 있고 릴리즈 없으면 진행).
+          gh release view $tag *> $null
+          $exists = ($LASTEXITCODE -eq 0)
+          if ($exists) {
             Write-Host "이미 릴리즈됨: $tag → 건너뜀"
             "skip=true" >> $env:GITHUB_OUTPUT
           } else {
             Write-Host "새 버전 릴리즈 진행: $tag"
             "skip=false" >> $env:GITHUB_OUTPUT
           }
+          exit 0   # gh 가 남긴 exit code 로 스텝이 실패하지 않도록 고정
 
       - name: Setup Python 3.11
         if: steps.check.outputs.skip != 'true'
