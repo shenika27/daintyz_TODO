@@ -30,6 +30,7 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QSpinBox,
     QTabWidget,
+    QTextBrowser,
     QVBoxLayout,
     QWidget,
 )
@@ -265,6 +266,10 @@ class SettingsDialog(QDialog):
         self._check_btn = QPushButton("업데이트 확인")
         self._check_btn.clicked.connect(self._check_update)
         btn_row.addWidget(self._check_btn)
+        self._notes_btn = QPushButton("패치노트")
+        self._notes_btn.setToolTip("최신 릴리즈의 변경 내용을 봅니다.")
+        self._notes_btn.clicked.connect(self._show_patch_notes)
+        btn_row.addWidget(self._notes_btn)
         btn_row.addStretch(1)
         ul.addLayout(btn_row)
 
@@ -546,6 +551,54 @@ class SettingsDialog(QDialog):
         on_quit = self._app_quit or QApplication.instance().quit
         self.accept()
         run_update_flow(self.parent() or None, info, on_quit)
+
+    def _show_patch_notes(self) -> None:
+        from services import update_service
+
+        self._notes_btn.setEnabled(False)
+        self._notes_btn.setText("불러오는 중…")
+
+        class _NotesWorker(QThread):
+            done = pyqtSignal(object)  # ReleaseNotes | None
+
+            def run(self):
+                self.done.emit(update_service.fetch_release_notes())
+
+        self._notes_worker = _NotesWorker(self)
+        self._notes_worker.done.connect(self._on_notes_done)
+        self._notes_worker.start()
+
+    def _on_notes_done(self, notes) -> None:
+        self._notes_btn.setEnabled(True)
+        self._notes_btn.setText("패치노트")
+        if notes is None:
+            QMessageBox.information(
+                self, "패치노트", "패치노트를 불러올 수 없습니다.\n(릴리즈가 아직 없거나 네트워크 오류)"
+            )
+            return
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle(f"패치노트 — v{notes.version}")
+        dlg.resize(460, 400)
+        v = QVBoxLayout(dlg)
+
+        head = QLabel(f"v{notes.version}"
+                      + (f"  ·  {notes.published_at}" if notes.published_at else ""))
+        head.setStyleSheet("font-weight: bold;")
+        v.addWidget(head)
+
+        browser = QTextBrowser()
+        browser.setOpenExternalLinks(True)
+        if notes.body:
+            browser.setMarkdown(notes.body)
+        else:
+            browser.setPlainText("이 릴리즈에는 패치노트가 없습니다.")
+        v.addWidget(browser, 1)
+
+        close = QPushButton("닫기")
+        close.clicked.connect(dlg.accept)
+        v.addWidget(close)
+        dlg.exec()
 
     # ── 반복 할일 탭 ────────────────────────────────────────
     def _build_recurring(self) -> QWidget:

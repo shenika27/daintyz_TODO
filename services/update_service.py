@@ -24,6 +24,10 @@ UPDATE_CHECK_URL: str = (
 )
 # 자동 교체가 불가할 때(설치판 등) 사용자에게 안내할 릴리즈 페이지.
 RELEASES_PAGE_URL: str = "https://github.com/shenika27/daintyz_TODO/releases/latest"
+# 최신 릴리즈 메타(패치노트 본문 등)를 읽는 GitHub API.
+API_LATEST_URL: str = (
+    "https://api.github.com/repos/shenika27/daintyz_TODO/releases/latest"
+)
 
 
 class UpdateNeedsManualInstall(Exception):
@@ -33,6 +37,12 @@ class UpdateNeedsManualInstall(Exception):
 class UpdateInfo(NamedTuple):
     version: str
     download_url: str
+
+
+class ReleaseNotes(NamedTuple):
+    version: str
+    published_at: str  # YYYY-MM-DD
+    body: str          # 릴리즈 본문(마크다운)
 
 
 def _parse_version(v: str) -> tuple[int, ...]:
@@ -71,6 +81,31 @@ def check_update() -> UpdateInfo | None:
         return None
     except Exception as e:  # noqa: BLE001
         log.warning("업데이트 확인 실패: %s", e)
+        return None
+
+
+def fetch_release_notes() -> ReleaseNotes | None:
+    """최신 릴리즈의 패치노트(본문)를 읽어온다. 실패 시 None."""
+    import urllib.request
+
+    try:
+        req = urllib.request.Request(
+            API_LATEST_URL,
+            headers={
+                "User-Agent": "CharacterTodo-Updater",
+                "Accept": "application/vnd.github+json",
+            },
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode())
+        tag = data.get("tag_name") or data.get("name") or ""
+        return ReleaseNotes(
+            version=tag.lstrip("v"),
+            published_at=(data.get("published_at") or "")[:10],
+            body=(data.get("body") or "").strip(),
+        )
+    except Exception as e:  # noqa: BLE001
+        log.warning("패치노트 조회 실패: %s", e)
         return None
 
 

@@ -91,20 +91,38 @@ jobs:
           Write-Host "version.json 생성됨:"
           Get-Content dist\version.json
 
+      - name: Extract release notes from CHANGELOG
+        if: steps.check.outputs.skip != 'true'
+        shell: pwsh
+        run: |
+          $ver = "${{ steps.ver.outputs.version }}"
+          # CHANGELOG.md 에서 '## [<버전>]' 섹션을 다음 '## ' 전까지 뽑아낸다.
+          $notes = ""
+          if (Test-Path CHANGELOG.md) {
+            $capture = $false
+            $buf = @()
+            foreach ($line in (Get-Content CHANGELOG.md)) {
+              if ($line -match "^##\s*\[?$([regex]::Escape($ver))\]?") { $capture = $true; continue }
+              elseif ($capture -and $line -match "^##\s") { break }
+              if ($capture) { $buf += $line }
+            }
+            $notes = ($buf -join "`n").Trim()
+          }
+          if (-not $notes) { $notes = "이 버전의 변경 내용이 CHANGELOG.md 에 없습니다." }
+          $footer = "`n`n---`n### 설치 / 업데이트`n" +
+                    "- 앱 내: 설정 → 앱 업데이트 → 업데이트 확인`n" +
+                    "- 수동: 아래 ``CharacterTodo-onefile-$ver.exe`` 를 받아 기존 파일과 교체"
+          ($notes + $footer) | Set-Content -Encoding UTF8 dist\RELEASE_NOTES.md
+          Write-Host "릴리즈 노트:"
+          Get-Content dist\RELEASE_NOTES.md
+
       - name: Create GitHub Release
         if: steps.check.outputs.skip != 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: "v${{ steps.ver.outputs.version }}"   # 이 커밋에 태그를 만들어 릴리즈
           name: "v${{ steps.ver.outputs.version }}"
-          body: |
-            ## CharacterTodo v${{ steps.ver.outputs.version }}
-
-            ### 설치 방법
-            `CharacterTodo-onefile-${{ steps.ver.outputs.version }}.exe` 를 다운로드해서 실행하세요.
-            이전 버전과 파일을 교체하면 업데이트됩니다.
-
-            > 앱 내 자동 업데이트: 설정 → 앱 업데이트 → 업데이트 확인
+          body_path: dist/RELEASE_NOTES.md                 # CHANGELOG 에서 뽑은 패치노트
           files: |
             dist/CharacterTodo-onefile-${{ steps.ver.outputs.version }}.exe
             dist/version.json
