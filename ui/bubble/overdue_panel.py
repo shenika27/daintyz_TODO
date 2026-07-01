@@ -82,7 +82,7 @@ class OverduePanel(_PanelBase):
         self._scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self._vbox.addWidget(self._scroll, 1)
 
-        btn_row = QHBoxLayout()
+        btn_row = QVBoxLayout()
         btn_row.setSpacing(4)
         self._complete_all_btn = QPushButton("모두 완료")
         self._complete_all_btn.setToolTip("오늘 이전 미완료 할일을 모두 완료 처리합니다.")
