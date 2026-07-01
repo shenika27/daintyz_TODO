@@ -121,6 +121,7 @@ class TodoService:
         if count:
             self._set_restore_undo(snapshot)
             self._notify(iso)
+            self._events.todo_completed.emit()
         return count
 
     def complete_all_overdue(self) -> int:
@@ -133,6 +134,7 @@ class TodoService:
         if count:
             self._set_restore_undo(snapshot)
             self._notify_many(changed_dates)
+            self._events.todo_completed.emit()
         return count
 
     def move_incomplete_regular_to_today(self, iso: str) -> int:
