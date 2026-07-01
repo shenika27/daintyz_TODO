@@ -462,7 +462,20 @@ class CharacterWidget(QWidget):
 
     def _screen_for(self, pt: QPoint):
         s = QApplication.screenAt(pt)
-        return s or QApplication.primaryScreen()
+        if s is not None:
+            return s
+        # 화면 밖(모니터 가장자리 너머·모니터 사이 빈틈)이면 primary가 아니라
+        # 가장 가까운 화면을 고른다. 안 그러면 보조 모니터 끝을 넘길 때
+        # primary(메인)로 clamp 되어 캐릭터가 순간이동한다.
+        best, best_d = None, None
+        for scr in QApplication.screens():
+            g = scr.geometry()
+            dx = max(g.left() - pt.x(), 0, pt.x() - g.right())
+            dy = max(g.top() - pt.y(), 0, pt.y() - g.bottom())
+            d = dx * dx + dy * dy
+            if best_d is None or d < best_d:
+                best, best_d = scr, d
+        return best or QApplication.primaryScreen()
 
     def available_geometry(self):
         """캐릭터가 놓인 화면의 가용 영역(작업표시줄 제외). 컨트롤러/내부 공용."""
