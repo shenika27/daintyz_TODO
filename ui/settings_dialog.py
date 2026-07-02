@@ -311,6 +311,24 @@ class SettingsDialog(QDialog):
         )
         credit.setWordWrap(True)
         il.addWidget(credit)
+
+        # 오픈소스 라이선스 고지(LGPL/Apache/BSD 의무 고지)
+        oss = QLabel(
+            '이 앱은 다음 오픈소스를 사용합니다:<br>'
+            '· Qt / <a href="https://www.qt.io/">PySide6</a> — LGPL v3<br>'
+            '· <a href="https://cryptography.io/">cryptography</a> — Apache-2.0 / BSD '
+            '(OpenSSL 포함)'
+        )
+        oss.setObjectName("subText")
+        oss.setTextFormat(Qt.TextFormat.RichText)
+        oss.setOpenExternalLinks(True)
+        oss.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
+        oss.setWordWrap(True)
+        f = oss.font()
+        f.setPointSize(max(7, f.pointSize() - 1))
+        oss.setFont(f)
+        il.addWidget(oss)
+
         form.addRow(info_box)
 
         return w
@@ -322,13 +340,18 @@ class SettingsDialog(QDialog):
 
     def _resource_filename(self, base: str) -> str:
         """resources 에 있는 폴백 파일명(png→gif). 없으면 'base.* (없음)'."""
-        from core import paths
+        from core import asset_pack, paths
 
         try:
-            res_dir = paths.resource_dir()
-            for ext in (".png", ".gif"):
-                if (res_dir / (base + ext)).exists():
-                    return base + ext
+            if asset_pack.is_encrypted_build():
+                for ext in (".png", ".gif"):
+                    if asset_pack.has(base + ext):
+                        return base + ext
+            else:
+                res_dir = paths.resource_dir()
+                for ext in (".png", ".gif"):
+                    if (res_dir / (base + ext)).exists():
+                        return base + ext
         except Exception:  # noqa: BLE001
             pass
         return f"{base}.* (없음)"

@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 from datetime import date
 
-from PySide6.QtCore import QPoint, QSize, QTimer, Qt
+from PySide6.QtCore import QBuffer, QByteArray, QIODevice, QPoint, QSize, QTimer, Qt
 from PySide6.QtGui import (
     QAction,
     QBrush,
@@ -23,7 +23,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import QApplication, QMenu, QWidget
 
-from core import paths
+from core import asset_pack, paths
 from domain import policies
 from ui.bubble.todo_item import MIME_TODO
 from ui.qt_helpers import make_overlay_window, set_overlay_always_on_top
@@ -70,8 +70,17 @@ _IMAGE_KEYS = {
 
 
 def _bundled_fallback(situation: str) -> str | None:
-    """resources\\ 에서 상황별 폴백 이미지 경로를 찾는다(png→gif 순). 없으면 None."""
+    """상황별 폴백 이미지 소스를 찾는다(png→gif 순). 없으면 None.
+
+    잠금(암호화) 빌드에서는 평문 파일이 없으므로 팩 내부 이름을 'pak:<name>' 마커로
+    돌려주고, _load_source 가 메모리에서 복호화해 로드한다. 그 외에는 파일 경로."""
     base = _FALLBACK_BASE[situation]
+    if asset_pack.is_encrypted_build():
+        for ext in _FALLBACK_EXTS:
+            name = base + ext
+            if asset_pack.has(name):
+                return f"pak:{name}"
+        return None
     res_dir = paths.resource_dir()
     for ext in _FALLBACK_EXTS:
         cand = res_dir / (base + ext)
@@ -186,9 +195,15 @@ class CharacterWidget(QWidget):
         self.update()
 
     def _load_source(self, path: str | None) -> tuple[QPixmap | None, QMovie | None]:
-        """경로 → (pixmap, movie). 애니메이션 GIF 면 movie, 그 외 정적 pixmap."""
+        """경로/마커 → (pixmap, movie). 애니메이션 GIF 면 movie, 그 외 정적 pixmap.
+        'pak:<name>' 마커면 암호화 팩에서 복호화한 bytes 로 메모리 로드한다."""
         if not path:
             return None, None
+        if path.startswith("pak:"):
+            data = asset_pack.get_bytes(path[4:])
+            if data is None:
+                return None, None
+            return self._load_bytes(data, path.lower().endswith(".gif"))
         box = self._box()
         if path.lower().endswith(".gif"):
             movie = QMovie(path)
@@ -201,9 +216,36 @@ class CharacterWidget(QWidget):
         pm = QPixmap(path)
         if pm.isNull():
             return None, None
-        pm = pm.scaled(box, box, Qt.AspectRatioMode.KeepAspectRatio,
-                       Qt.TransformationMode.SmoothTransformation)
-        return pm, None
+        return self._scale_pixmap(pm), None
+
+    def _load_bytes(self, data: bytes, is_gif: bool) -> tuple[QPixmap | None, QMovie | None]:
+        """bytes → (pixmap, movie). GIF 는 QBuffer 로 QMovie 를 만든다.
+        QMovie 는 QBuffer/QByteArray 가 살아있어야 하므로 movie 에 참조를 붙여둔다."""
+        box = self._box()
+        if is_gif:
+            ba = QByteArray(data)
+            buf = QBuffer(ba)
+            buf.open(QIODevice.OpenModeFlag.ReadOnly)
+            movie = QMovie(buf, b"GIF")
+            if movie.isValid():
+                movie.setCacheMode(QMovie.CacheMode.CacheAll)
+                movie.jumpToFrame(0)
+                native = movie.currentPixmap().size()
+                if native.isValid() and (native.width() > box or native.height() > box):
+                    movie.setScaledSize(native.scaled(box, box, Qt.AspectRatioMode.KeepAspectRatio))
+                movie._pak_ba = ba   # 수명 유지(QMovie 가 소유하지 않음)
+                movie._pak_buf = buf
+                return None, movie
+            buf.close()
+        pm = QPixmap()
+        if not pm.loadFromData(data) or pm.isNull():
+            return None, None
+        return self._scale_pixmap(pm), None
+
+    def _scale_pixmap(self, pm: QPixmap) -> QPixmap:
+        box = self._box()
+        return pm.scaled(box, box, Qt.AspectRatioMode.KeepAspectRatio,
+                         Qt.TransformationMode.SmoothTransformation)
 
     def _resolved_situation(self) -> str:
         """현재 상황(소스 없으면 default 로 폴백)."""

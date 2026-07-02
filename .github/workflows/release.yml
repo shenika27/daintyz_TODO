@@ -70,6 +70,7 @@ jobs:
           pip install pyinstaller
 
       - name: Apply build flags (character edit)
+        id: flags
         if: steps.check.outputs.skip != 'true'
         shell: pwsh
         run: |
@@ -82,10 +83,25 @@ jobs:
           $flag = "resources/character_edit_disabled.flag"
           if ($choice -match '^(N|n|0|off|false)$') {
             "disabled" | Set-Content -Encoding ascii $flag
-            Write-Host "캐릭터 이미지 변경: 비활성 (고정 이미지)"
+            # 잠금 빌드 = 이미지 암호화 세트(N ⇒ 암호화).
+            "encrypt=true" >> $env:GITHUB_OUTPUT
+            Write-Host "캐릭터 이미지 변경: 비활성 (고정 이미지, 이미지 암호화)"
           } else {
             if (Test-Path $flag) { Remove-Item $flag }
+            "encrypt=false" >> $env:GITHUB_OUTPUT
             Write-Host "캐릭터 이미지 변경: 허용"
+          }
+
+      - name: Pack resources (locked build only)
+        if: steps.check.outputs.skip != 'true' && steps.flags.outputs.encrypt == 'true'
+        shell: pwsh
+        run: |
+          # 평문 이미지를 AES-GCM 팩으로 묶고 임베드 키 모듈 생성.
+          # 실패 시 job 실패(평문 유출 방지) — spec 은 팩 유무로 자동 분기한다.
+          python build\pack_resources.py
+          if (-not (Test-Path resources/resources.pak)) {
+            Write-Error "resources.pak 생성 실패"
+            exit 1
           }
 
       - name: Build EXE (PyInstaller)

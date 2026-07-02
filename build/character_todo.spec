@@ -9,10 +9,27 @@ ROOT = os.path.abspath(os.getcwd())
 with open(os.path.join(ROOT, "VERSION")) as _f:
     _version = _f.read().strip()
 
+# 잠금(암호화) 빌드: resources.pak 이 생성돼 있으면 평문 png/gif 는 번들에서 제외하고
+# 팩만 넣는다(app.ico·flag 등 비이미지는 유지). build.bat / release.yml 이 이미지 변경
+# N 일 때 build/pack_resources.py 로 팩을 만든 뒤 PyInstaller 를 호출한다.
+_pak_path = os.path.join(ROOT, "resources", "resources.pak")
+_encrypted = os.path.exists(_pak_path)
+
+if _encrypted:
+    _res_datas = []
+    _res_root = os.path.join(ROOT, "resources")
+    for _name in os.listdir(_res_root):
+        if _name.lower().endswith((".png", ".gif")):
+            continue  # 평문 이미지는 번들 제외(팩 안에 암호화되어 들어감)
+        _res_datas.append((os.path.join(_res_root, _name), "resources"))
+    resource_datas = _res_datas
+else:
+    resource_datas = [(os.path.join(ROOT, "resources"), "resources")]
+
 datas = [
     (os.path.join(ROOT, "data", "migrations"), os.path.join("data", "migrations")),
-    (os.path.join(ROOT, "resources"), "resources"),
     (os.path.join(ROOT, "VERSION"), "."),
+    *resource_datas,
 ]
 
 icon_path = os.path.join(ROOT, "resources", "app.ico")
@@ -23,7 +40,8 @@ a = Analysis(
     pathex=[ROOT],
     binaries=[],
     datas=datas,
-    hiddenimports=[],
+    # 잠금 빌드는 런타임 복호화에 cryptography(AES-GCM) 사용 → 확실히 포함.
+    hiddenimports=(["cryptography.hazmat.primitives.ciphers.aead"] if _encrypted else []),
     hookspath=[],
     runtime_hooks=[],
     excludes=[],

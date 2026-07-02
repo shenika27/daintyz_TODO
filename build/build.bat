@@ -53,14 +53,26 @@ if defined CLEAN echo     [clean] PyInstaller cache cleared
 echo [*] Character image change support (set CHARACTER_EDIT=0 to disable, 1 to enable)
 if not defined CHARACTER_EDIT set /p "CHARACTER_EDIT=Allow users to change the character image in this build? (Y/n): "
 set "FLAGFILE=resources\character_edit_disabled.flag"
+set "PAKFILE=resources\resources.pak"
+set "KEYFILE=core\_asset_key.py"
 if exist "%FLAGFILE%" del "%FLAGFILE%"
+if exist "%PAKFILE%" del "%PAKFILE%"
+if exist "%KEYFILE%" del "%KEYFILE%"
+set "ENCRYPT_ASSETS="
 if /I "!CHARACTER_EDIT!"=="n" goto :char_disabled
 if "!CHARACTER_EDIT!"=="0" goto :char_disabled
 echo     -^> character change ENABLED
 goto :char_done
 :char_disabled
 echo disabled> "%FLAGFILE%"
-echo     -^> character change DISABLED (fixed default image)
+set "ENCRYPT_ASSETS=1"
+echo     -^> character change DISABLED (fixed default image, images ENCRYPTED)
+REM 잠금 빌드: 평문 이미지를 암호화 팩으로 묶는다(spec 이 팩 유무로 자동 분기).
+python build\pack_resources.py 1>>"%LOG%" 2>>&1
+if errorlevel 1 (
+    echo Resource packing failed. See %LOG%
+    goto :fail
+)
 :char_done
 
 echo [4/7] Running PyInstaller (onedir + onefile)
@@ -89,6 +101,9 @@ if errorlevel 1 (
 )
 REM flag already bundled above; clean source tree so dev runs default to ENABLED
 if exist "%FLAGFILE%" del "%FLAGFILE%"
+REM 암호화 산출물도 소스 트리에서 제거(개발 실행은 평문/미암호화가 기본)
+if exist "%PAKFILE%" del "%PAKFILE%"
+if exist "%KEYFILE%" del "%KEYFILE%"
 if not exist "dist\CharacterTodo\CharacterTodo.exe" (
     echo Expected dist\CharacterTodo\ folder was not created. See %LOG%
     goto :fail

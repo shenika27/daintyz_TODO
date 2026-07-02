@@ -15,3 +15,6 @@ dist/
 .DS_Store
 # 빌드 시 일시 생성되는 캐릭터 변경 비활성화 마커
 resources/character_edit_disabled.flag
+# 잠금(암호화) 빌드 시 생성되는 리소스 팩과 임베드 키(커밋 금지)
+resources/resources.pak
+core/_asset_key.py
