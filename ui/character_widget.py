@@ -23,7 +23,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import QApplication, QMenu, QWidget
 
-from core import asset_pack, paths
+from core import asset_pack, feature_flags, paths
 from domain import policies
 from ui.bubble.todo_item import MIME_TODO
 from ui.qt_helpers import make_overlay_window, set_overlay_always_on_top
@@ -179,8 +179,11 @@ class CharacterWidget(QWidget):
                 m.stop()
         self._pixmaps = {}
         self._movies = {}
+        # 잠금(변경 불가) 빌드에서는 사용자 설정 커스텀 경로를 무시하고 번들/팩만 쓴다.
+        # (설정 DB 를 공유하는 열림 빌드나 DB 직접 편집으로 잠금이 우회되는 것을 차단)
+        allow_custom = feature_flags.character_edit_enabled()
         for sit, key in _IMAGE_KEYS.items():
-            path = self._settings.get(key) or _bundled_fallback(sit)
+            path = (self._settings.get(key) if allow_custom else None) or _bundled_fallback(sit)
             pm, movie = self._load_source(path)
             if movie is not None:
                 movie.frameChanged.connect(self.update)
