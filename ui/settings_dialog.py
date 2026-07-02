@@ -140,6 +140,20 @@ class SettingsDialog(QDialog):
         )
         form.addRow("밀린 할일 위치", self._panel_side)
 
+        self._auto_rollover_cb = QCheckBox("밀린할일 자동 이월")
+        self._auto_rollover_cb.setToolTip(
+            "날짜가 바뀌면 밀린 일반 할일을 자동으로 오늘로 옮깁니다."
+        )
+        self._auto_rollover_cb.setChecked(
+            self._settings.get_bool(policies.KEY_OVERDUE_AUTO_ROLLOVER, False)
+        )
+        self._auto_rollover_cb.toggled.connect(
+            lambda on: self._settings.set_bool(
+                policies.KEY_OVERDUE_AUTO_ROLLOVER, on
+            )
+        )
+        form.addRow("", self._auto_rollover_cb)
+
         # 타이머 −/+ 증감 간격 (1분 미만은 항상 5초 고정)
         self._timer_step = QComboBox()
         for label, secs in (

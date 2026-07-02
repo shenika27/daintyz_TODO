@@ -101,6 +101,7 @@ class AppController:
 
         # 반복 할일은 '오늘'에만 생성: 시작 시 1회 + 자정 넘김(1분마다 확인) 시 재생성.
         self._recurring_day = date.today()
+        self._roll_over_overdue_if_enabled()
         self.todo_service.ensure_today_recurring()
         self._day_timer = QTimer(self.app)
         self._day_timer.setInterval(60_000)
@@ -112,8 +113,16 @@ class AppController:
         today = date.today()
         if today != self._recurring_day:
             self._recurring_day = today
+            self._roll_over_overdue_if_enabled()
             self.todo_service.ensure_today_recurring()
             self.events.todos_changed.emit(today.isoformat())
+
+    def _roll_over_overdue_if_enabled(self) -> None:
+        if not self.settings_repo.get_bool(
+            policies.KEY_OVERDUE_AUTO_ROLLOVER, False
+        ):
+            return
+        self.todo_service.move_all_overdue_regular_to_today()
 
     # ── 컨트롤러 API (UI 가 호출) ───────────────────────────
     def open_settings(self) -> None:

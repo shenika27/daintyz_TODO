@@ -6,6 +6,7 @@ from datetime import date, timedelta
 
 # 설정 키 상수 (오타 방지를 위해 한 곳에 모음)
 KEY_INCOMPLETE = "policy.incomplete"        # 예전 keep/rollover 설정 호환용(현재 UI 미노출)
+KEY_OVERDUE_AUTO_ROLLOVER = "todo.overdue_auto_rollover"  # '0' | '1' — 날짜 변경 시 밀린 일반 할일 자동 이월
 KEY_FONT = "app.font"                        # 폰트 서체 패밀리명 (빈 문자열 = 시스템 기본)
 KEY_IMAGE_PATH = "character.image_path"            # 기본(오늘, 특이사항 없음)
 KEY_IMAGE_OVERDUE = "character.image_overdue"      # 이전 날짜 미달성 할일이 있을 때
