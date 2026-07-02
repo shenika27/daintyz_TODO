@@ -1,4 +1,4 @@
-# Character TODO
+# CharacterTodo
 
 바탕화면 위에 캐릭터가 떠 있는 데스크톱 할일(투두) 앱. 캐릭터를 클릭하면
 말풍선이 열리고, 일간 → 주간 → 월간으로 확장하며 할일을 관리합니다. (PySide6 / SQLite)
