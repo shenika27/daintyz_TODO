@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QSizePolicy,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -21,6 +22,12 @@ from ui import theme
 from ui.qt_helpers import make_overlay_window
 
 PANEL_WIDTH = 156  # 밀린할일·타이머 공통 패널 폭(헤더 버튼 2개까지 수용)
+_OUTER_MARGIN = 8
+_CONTENT_MARGIN = 8
+_CONTENT_SPACING = 6
+_HEADER_HEIGHT = 22
+_HEADER_BUTTON_SIZE = 22
+_HEADER_BUTTON_SPACING = 2
 
 
 class _PanelBase(QWidget):
@@ -37,30 +44,52 @@ class _PanelBase(QWidget):
         self._root = QFrame(self)
         self._root.setObjectName("bubbleRoot")
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(8, 8, 8, 8)  # 그림자/여백(말풍선과 동일)
+        outer.setContentsMargins(_OUTER_MARGIN, _OUTER_MARGIN, _OUTER_MARGIN, _OUTER_MARGIN)
         outer.addWidget(self._root)
 
-        self._vbox = QVBoxLayout(self._root)
-        self._vbox.setContentsMargins(8, 8, 8, 8)
-        self._vbox.setSpacing(6)
+        self._root_lay = QVBoxLayout(self._root)
+        self._root_lay.setContentsMargins(
+            _CONTENT_MARGIN, _CONTENT_MARGIN, _CONTENT_MARGIN, _CONTENT_MARGIN
+        )
+        self._root_lay.setSpacing(_CONTENT_SPACING)
 
-        self._head = QHBoxLayout()
-        self._head.setSpacing(2)
+        self._header = QWidget(self._root)
+        self._header.setFixedHeight(_HEADER_HEIGHT)
+        self._head = QHBoxLayout(self._header)
+        self._head.setContentsMargins(0, 0, 0, 0)
+        self._head.setSpacing(_HEADER_BUTTON_SPACING)
         self._title_lbl = QLabel(title)
         self._title_lbl.setObjectName("overdueTitle")
+        self._title_lbl.setFixedHeight(_HEADER_HEIGHT)
+        self._title_lbl.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+        self._title_lbl.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         f = self._title_lbl.font()
         f.setBold(True)
         self._title_lbl.setFont(f)
         self._head.addWidget(self._title_lbl, 1)
-        self._vbox.addLayout(self._head)
+        self._root_lay.addWidget(self._header)
+
+        self._body = QWidget(self._root)
+        self._body_lay = QVBoxLayout(self._body)
+        self._body_lay.setContentsMargins(0, 0, 0, 0)
+        self._body_lay.setSpacing(_CONTENT_SPACING)
+        self._root_lay.addWidget(self._body, 1)
+
+        # 자식 패널은 본문만 다룬다. 헤더 여백과 기준선은 이 베이스가 고정한다.
+        self._vbox = self._body_lay
 
         self._events.theme_changed.connect(self.apply_theme)
+
+    def _set_title(self, text: str) -> None:
+        self._title_lbl.setText(text)
 
     def _add_header_button(self, text: str, tooltip: str, on_click) -> QToolButton:
         """헤더 우측에 툴버튼 추가(✕ 포함). 추가 순서대로 우측에 배치된다."""
         b = QToolButton()
+        b.setObjectName("headerBtn")
         b.setText(text)
         b.setToolTip(tooltip)
+        b.setFixedSize(_HEADER_BUTTON_SIZE, _HEADER_BUTTON_SIZE)
         b.setCursor(Qt.CursorShape.PointingHandCursor)
         b.clicked.connect(on_click)
         self._head.addWidget(b)

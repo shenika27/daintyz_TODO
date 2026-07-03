@@ -162,9 +162,7 @@ class OverduePanel(_PanelBase):
         self._switch_btn = self._add_header_button("", "완료한 일 보기", self._toggle_mode)
         self._switch_btn.setIcon(QIcon(_switch_pixmap(16, "#6F6A64")))
         self._switch_btn.setIconSize(QSize(16, 16))
-        self._switch_btn.setFixedSize(22, 22)
-        close_btn = self._add_header_button("✕", "닫기", self._close_panel)
-        close_btn.setFixedSize(22, 22)
+        self._add_header_button("✕", "닫기", self._close_panel)
 
         self._scroll = QScrollArea()
         self._scroll.setWidgetResizable(True)
@@ -218,7 +216,7 @@ class OverduePanel(_PanelBase):
             rows = self._service.overdue_counts(today_iso)
             total = sum(cnt for _iso, cnt in rows)
             movable_count = self._service.movable_overdue_count(today_iso)
-            self._title_lbl.setText(f"밀린 할일({total})")
+            self._set_title(f"밀린 할일({total})")
             self._switch_btn.setToolTip("완료한 일 보기")
             self._actions.setVisible(True)
             self._complete_all_btn.setEnabled(bool(rows))
@@ -235,7 +233,7 @@ class OverduePanel(_PanelBase):
                 if completed_view == "detail"
                 else sum(cnt for _iso, cnt in rows)
             )
-            self._title_lbl.setText(f"완료한 일({total})")
+            self._set_title(f"완료한 일({total})")
             self._switch_btn.setToolTip("밀린 할일 보기")
             self._actions.setVisible(False)
 
@@ -294,12 +292,10 @@ class OverduePanel(_PanelBase):
             return
         self._compact_actions = compact
         if compact:
-            self._vbox.setContentsMargins(6, 6, 6, 6)
             self._vbox.setSpacing(4)
             self._action_lay.setSpacing(2)
             min_h = 24
         else:
-            self._vbox.setContentsMargins(8, 8, 8, 8)
             self._vbox.setSpacing(6)
             self._action_lay.setSpacing(4)
             min_h = 28
