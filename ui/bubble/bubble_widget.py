@@ -601,13 +601,13 @@ class BubbleWidget(QWidget):
             grp.addAnimation(a)
         return grp
 
-    def _play_open(self) -> None:
+    def _play_open(self, targets: list | None = None) -> None:
         """아래(+SLIDE)에서 최종 위치로 슬라이드 인 + 짧은 페이드로 등장 보정.
         _reposition/show 가 패널·말풍선을 '최종 위치'에 먼저 띄우므로, 같은 호출 스택에서
         (이벤트 루프 복귀 전) opacity 0 으로 덮고 시작 위치로 내려둔다. 그래서 첫 페인트가
         최종 위치에서 번쩍이며 '위에서 덜컥' 떨어지는 일이 없고, 페이드가 잔여 점프를 가린다."""
         self._stop_anim()
-        targets = self._slide_targets()
+        targets = targets or self._slide_targets()
         for w, final in targets:
             w.setWindowOpacity(0.0)                     # 최종 위치 첫 페인트를 덮음
             w.move(final.x(), final.y() + _SLIDE_PX)    # 시작 위치(아래)로
@@ -657,6 +657,13 @@ class BubbleWidget(QWidget):
         self._screen_geom = screen_geom
         self._panels_detached = False  # 다시 열리면 패널은 말풍선 옆 컬럼으로 복귀
         self._settings.set_bool(policies.KEY_LIST_SHOW, True)  # 목록 그리드 ON 상태로 기록
+        animate = self._anim_enabled()
+        if animate:
+            self._stop_anim()
+            self.setWindowOpacity(0.0)
+            self._overdue_panel.setWindowOpacity(0.0)
+            if self._timer_panel is not None:
+                self._timer_panel.setWindowOpacity(0.0)
         self.render()  # 최소/저장 크기까지 여기서 확정(별도 adjustSize 금지: 커스텀 크기 덮어씀)
         # 위치를 먼저 잡고(이동) show → 첫 표시 시 엉뚱한 위치 깜빡임 방지
         self.move(self._placement(char_geom, screen_geom))
@@ -667,8 +674,13 @@ class BubbleWidget(QWidget):
         # _play_open 의 _slide_targets 에 잡혀 함께 슬라이드+페이드된다.
         self._reposition()
         self._events.bubble_opened.emit()  # 캐릭터 '목록 열림' 이미지 전환(#12)
-        if self._anim_enabled():
-            self._play_open()
+        if animate:
+            self._play_open(self._slide_targets())
+        else:
+            self.setWindowOpacity(1.0)
+            self._overdue_panel.setWindowOpacity(1.0)
+            if self._timer_panel is not None:
+                self._timer_panel.setWindowOpacity(1.0)
 
     def reposition_for_character(self, char_geom: QRect, screen_geom: QRect) -> None:
         """캐릭터 드래그 중 말풍선만 따라 이동(뷰 재구성 없이 위치만)."""
