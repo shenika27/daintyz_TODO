@@ -57,6 +57,24 @@ class TodoRepository:
         ).fetchall()
         return [(r["due_date"], r["c"]) for r in rows]
 
+    def completed_items(self) -> list[Todo]:
+        """완료·미숨김 할일 전체를 최근 날짜 우선으로 반환."""
+        rows = self.conn.execute(
+            "SELECT * FROM todos "
+            "WHERE completed = 1 AND hidden = 0 "
+            "ORDER BY due_date DESC, sort_order, id"
+        ).fetchall()
+        return [Todo.from_row(r) for r in rows]
+
+    def completed_counts(self) -> list[tuple[str, int]]:
+        """완료·미숨김 할일이 있는 날짜별 개수(최근 날짜 우선)."""
+        rows = self.conn.execute(
+            "SELECT due_date, COUNT(*) AS c FROM todos "
+            "WHERE completed = 1 AND hidden = 0 "
+            "GROUP BY due_date ORDER BY due_date DESC"
+        ).fetchall()
+        return [(r["due_date"], r["c"]) for r in rows]
+
     def count_incomplete_regular_before(self, iso: str) -> int:
         """주어진 날짜 이전(< iso)의 미완료 일반 할일 개수."""
         r = self.conn.execute(
@@ -70,6 +88,15 @@ class TodoRepository:
         """해당 날짜의 미완료·미숨김 할일 스냅샷."""
         rows = self.conn.execute(
             "SELECT * FROM todos WHERE due_date = ? AND completed = 0 AND hidden = 0 "
+            "ORDER BY sort_order, id",
+            (iso,),
+        ).fetchall()
+        return [Todo.from_row(r) for r in rows]
+
+    def completed_for_date(self, iso: str) -> list[Todo]:
+        """해당 날짜의 완료·미숨김 할일 스냅샷."""
+        rows = self.conn.execute(
+            "SELECT * FROM todos WHERE due_date = ? AND completed = 1 AND hidden = 0 "
             "ORDER BY sort_order, id",
             (iso,),
         ).fetchall()
@@ -152,6 +179,22 @@ class TodoRepository:
         )
         self.conn.commit()
         return cur.lastrowid
+
+    def add_many(self, contents: list[str], iso: str) -> int:
+        """같은 날짜 끝에 여러 일반 할일을 미완료 상태로 추가하고 개수를 반환."""
+        cleaned = [c.strip() for c in contents if c.strip()]
+        if not cleaned:
+            return 0
+        next_order = self._next_order(iso)
+        now = _now()
+        for offset, content in enumerate(cleaned):
+            self.conn.execute(
+                "INSERT INTO todos (content, due_date, sort_order, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (content, iso, next_order + offset, now, now),
+            )
+        self.conn.commit()
+        return len(cleaned)
 
     def set_content(self, todo_id: int, content: str) -> None:
         self.conn.execute(

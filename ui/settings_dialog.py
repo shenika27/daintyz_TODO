@@ -140,7 +140,7 @@ class SettingsDialog(QDialog):
         )
         form.addRow("밀린 할일 위치", self._panel_side)
 
-        self._auto_rollover_cb = QCheckBox("밀린할일 자동 이월")
+        self._auto_rollover_cb = QCheckBox()
         self._auto_rollover_cb.setToolTip(
             "날짜가 바뀌면 밀린 일반 할일을 자동으로 오늘로 옮깁니다."
         )
@@ -152,7 +152,17 @@ class SettingsDialog(QDialog):
                 policies.KEY_OVERDUE_AUTO_ROLLOVER, on
             )
         )
-        form.addRow("", self._auto_rollover_cb)
+        form.addRow("밀린할일 자동 이월", self._auto_rollover_cb)
+
+        self._completed_view_mode = QComboBox()
+        self._completed_view_mode.addItem("날짜별 보기", "summary")
+        self._completed_view_mode.addItem("상세 보기", "detail")
+        self._select_data(
+            self._completed_view_mode,
+            self._settings.get(policies.KEY_COMPLETED_VIEW_MODE, "summary"),
+        )
+        self._completed_view_mode.currentIndexChanged.connect(self._change_completed_view_mode)
+        form.addRow("완료한 일 표시", self._completed_view_mode)
 
         # 타이머 −/+ 증감 간격 (1분 미만은 항상 5초 고정)
         self._timer_step = QComboBox()
@@ -483,6 +493,13 @@ class SettingsDialog(QDialog):
     def _change_theme(self) -> None:
         self._settings.set(policies.KEY_THEME, self._theme.currentData())
         self._events.theme_changed.emit()
+
+    def _change_completed_view_mode(self) -> None:
+        self._settings.set(
+            policies.KEY_COMPLETED_VIEW_MODE,
+            self._completed_view_mode.currentData(),
+        )
+        self._events.todos_changed.emit(date.today().isoformat())
 
     def _on_scale_changed(self, v: int) -> None:
         self._settings.set(policies.KEY_CHAR_SCALE, str(v))

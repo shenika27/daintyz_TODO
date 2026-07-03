@@ -4,7 +4,7 @@
 """
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import QLabel, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
 
 from ui.bubble.todo_item import MIME_TODO, TodoItem
@@ -83,10 +83,16 @@ class _DropList(QWidget):
                 return i
         return len(self._items)
 
+    def item_by_id(self, todo_id: int) -> TodoItem | None:
+        for item in self._items:
+            if item.todo.id == todo_id:
+                return item
+        return None
+
 
 class DayView(QWidget):
     def __init__(self, iso: str, service, timer_service=None, settings_repo=None,
-                 events=None, parent=None):
+                 events=None, parent=None, focus_todo_id: int | None = None):
         super().__init__(parent)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         outer = QVBoxLayout(self)
@@ -99,5 +105,16 @@ class DayView(QWidget):
         self._scroll.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self._scroll.setWidget(_DropList(iso, service, timer_service, settings_repo, events))
+        self._list = _DropList(iso, service, timer_service, settings_repo, events)
+        self._scroll.setWidget(self._list)
         outer.addWidget(self._scroll)
+
+        if focus_todo_id is not None:
+            QTimer.singleShot(0, lambda: self._focus_todo(focus_todo_id))
+
+    def _focus_todo(self, todo_id: int) -> None:
+        item = self._list.item_by_id(todo_id)
+        if item is None:
+            return
+        self._scroll.ensureWidgetVisible(item, 0, 16)
+        item.flash_focus()

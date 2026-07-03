@@ -111,6 +111,7 @@ class BubbleWidget(QWidget):
         make_overlay_window(self)
 
         self.selected_iso = date.today().isoformat()
+        self._focus_todo_id: int | None = None
         self.view_mode = self._settings.get(policies.KEY_LAST_VIEW, "day") or "day"
         if self.view_mode not in _ORDER:
             self.view_mode = "day"
@@ -384,8 +385,10 @@ class BubbleWidget(QWidget):
         # parent 를 view_holder 로 지정해 '레이아웃 추가 전 잠깐 최상위 창이 되는' 깜빡임 방지
         holder = self._view_holder
         if self.view_mode == "day":
+            focus_todo_id = self._focus_todo_id
+            self._focus_todo_id = None
             view = DayView(self.selected_iso, self._service, self._timer, self._settings,
-                           self._events, holder)
+                           self._events, holder, focus_todo_id=focus_todo_id)
         elif self.view_mode == "week":
             view = WeekView(self.selected_iso, self._service, self.select_date,
                             self.open_day, self._timer, self._settings, self._events, holder)
@@ -487,9 +490,10 @@ class BubbleWidget(QWidget):
         self.selected_iso = date(y, m, day).isoformat()
         self.render()
 
-    def open_day(self, iso: str) -> None:
+    def open_day(self, iso: str, focus_todo_id: int | None = None) -> None:
         """월간 등에서 특정 날짜를 일간 보기로 연다."""
         self.selected_iso = iso
+        self._focus_todo_id = focus_todo_id
         self.view_mode = "day"
         self._settings.set(policies.KEY_LAST_VIEW, "day")
         self.render()

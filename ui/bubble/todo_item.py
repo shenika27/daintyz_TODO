@@ -8,7 +8,15 @@
 """
 from __future__ import annotations
 
-from PySide6.QtCore import QMimeData, QPoint, Qt, QTimer, Signal
+from PySide6.QtCore import (
+    QEasingCurve,
+    QMimeData,
+    QPoint,
+    QPropertyAnimation,
+    Qt,
+    QTimer,
+    Signal,
+)
 from PySide6.QtGui import (
     QColor,
     QCursor,
@@ -23,6 +31,7 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
+    QGraphicsOpacityEffect,
     QHBoxLayout,
     QLabel,
     QMenu,
@@ -189,6 +198,52 @@ class TodoItem(QWidget):
         self._tip_timer.setInterval(_TOOLTIP_DELAY_MS)
         self._tip_timer.timeout.connect(self._show_tooltip)
 
+    def flash_focus(self) -> None:
+        """외부 패널에서 이동해 온 항목을 잠깐 강조했다가 원래 배경으로 되돌린다."""
+        self._clear_focus_overlay()
+
+        overlay = QWidget(self)
+        overlay.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        overlay.setStyleSheet(
+            "background: rgba(127, 119, 221, 48); border-radius: 9px;"
+        )
+        overlay.setGeometry(self.rect())
+        overlay.raise_()
+        overlay.show()
+
+        eff = QGraphicsOpacityEffect(overlay)
+        overlay.setGraphicsEffect(eff)
+        anim = QPropertyAnimation(eff, b"opacity", self)
+        anim.setDuration(820)
+        anim.setStartValue(0.0)
+        anim.setKeyValueAt(0.28, 1.0)
+        anim.setEndValue(0.0)
+        anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+
+        def done() -> None:
+            self._focus_anim = None
+            old_overlay = getattr(self, "_focus_overlay", None)
+            if old_overlay is not None:
+                old_overlay.hide()
+                old_overlay.deleteLater()
+                self._focus_overlay = None
+
+        anim.finished.connect(done)
+        self._focus_overlay = overlay
+        self._focus_anim = anim
+        anim.start()
+
+    def _clear_focus_overlay(self) -> None:
+        old_anim = getattr(self, "_focus_anim", None)
+        if old_anim is not None:
+            old_anim.stop()
+            self._focus_anim = None
+        old_overlay = getattr(self, "_focus_overlay", None)
+        if old_overlay is not None:
+            old_overlay.hide()
+            old_overlay.deleteLater()
+            self._focus_overlay = None
+
     # ── 완료 토글 ───────────────────────────────────────────
     def _on_checkbox(self, _state: int) -> None:
         if self._editing:
@@ -224,6 +279,9 @@ class TodoItem(QWidget):
 
     def resizeEvent(self, e) -> None:
         super().resizeEvent(e)
+        overlay = getattr(self, "_focus_overlay", None)
+        if overlay is not None:
+            overlay.setGeometry(self.rect())
         if not self._editing:
             self._update_elision()
 

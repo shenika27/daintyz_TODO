@@ -18,6 +18,7 @@ KEY_LAST_VIEW = "bubble.last_view"          # 'day' | 'week' | 'month'
 KEY_THEME = "app.theme"                      # 'light' | 'dark' | 'system'
 KEY_OVERDUE_PANEL = "bubble.overdue_panel"         # '0' | '1' — 밀린 할일 패널 표시
 KEY_OVERDUE_PANEL_SIDE = "bubble.overdue_panel_side"  # 'right' | 'left'
+KEY_COMPLETED_VIEW_MODE = "bubble.completed_view_mode"  # 'summary' | 'detail' — 완료한 일 표시 방식
 KEY_IMAGE_IDLE = "character.image_idle"            # 비활성 상태(마지막 활동 n시간 초과)
 KEY_IDLE_HOURS = "character.idle_hours"            # 비활성 판정 기준 시간 (0=비활성화)
 KEY_IMAGE_DONE = "character.image_done"            # 할일 완료 리액션

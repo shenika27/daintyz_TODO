@@ -20,12 +20,12 @@ from PySide6.QtWidgets import (
 )
 
 from domain import policies
-from ui.bubble.panel_base import PANEL_WIDTH, _PanelBase
+from ui.bubble.panel_base import _PanelBase
 from ui.bubble.todo_item import _clock_pixmap
 
-CELL_HEIGHT = 108  # 정사각형 셀: 패널 폭 140 − 외부/루트 여백(8+8)*2 = 셀 너비 108
-BLOCK_BASE = 172    # 패널 고정 높이(평상시): 헤더 + 정사각형 셀
-BLOCK_PAUSED = 210  # 할일 타이머 정지 시: + 셀↔버튼 공백 + 완료/초기화 버튼 자리
+CELL_HEIGHT = 94   # 정사각형 셀: 하단 잘림 방지 + 우측 뽀모도로 표시 여백 확보
+BLOCK_BASE = 166    # 패널 고정 높이(평상시): 헤더 + 정사각형 셀 + 여유
+BLOCK_PAUSED = 204  # 할일 타이머 정지 시: + 셀↔버튼 공백 + 완료/초기화 버튼 자리
 _PAUSE_COLOR = "#7F77DD"  # 정지(⏸) 강조색(보라) — 호버 안내용
 _PAUSED_RED = "#D85A30"   # 정지 '상태' 표시용 붉은 ‖ (#3)
 _RESUME_COLOR = "#2E9E5B"  # 재개(▶) 강조색(초록)
@@ -128,7 +128,7 @@ class _TimerCell(QFrame):
     def _show_normal_name(self) -> None:
         fm = QFontMetrics(self._name.font())
         self._name.setText(
-            fm.elidedText(self._content, Qt.TextElideMode.ElideRight, PANEL_WIDTH - 28)
+            fm.elidedText(self._content, Qt.TextElideMode.ElideRight, CELL_HEIGHT - 18)
         )
 
     def _refresh_idle_view(self) -> None:
@@ -189,8 +189,8 @@ class _IdleControl(QFrame):
 
         self._play = QToolButton()
         self._play.setObjectName("timerPlay")
-        self._play.setIcon(QIcon(_play_pixmap(30, _RESUME_COLOR)))
-        self._play.setIconSize(QSize(30, 30))
+        self._play.setIcon(QIcon(_play_pixmap(28, _RESUME_COLOR)))
+        self._play.setIconSize(QSize(28, 28))
         self._play.setAutoRaise(True)
         self._play.setCursor(Qt.CursorShape.PointingHandCursor)
         self._play.setToolTip("타이머 시작")
@@ -219,7 +219,7 @@ class _IdleControl(QFrame):
         b.setObjectName("timerAdjBtn")
         b.setToolTip(tip)
         b.setCursor(Qt.CursorShape.PointingHandCursor)
-        b.setFixedHeight(28)
+        b.setFixedHeight(24)
         b.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         b.clicked.connect(lambda: self._adjust(going_down))
         return b
@@ -264,13 +264,36 @@ class TimerPanel(_PanelBase):
 
         self._add_header_button("✕", "닫기", self._close_panel)
 
-        # 활성 타이머용 셀 + 비활성 시 직접 설정 idle 컨트롤(둘 중 하나만 표시)
+        # 활성 타이머용 셀 + 비활성 시 직접 설정 idle 컨트롤(둘 중 하나만 표시).
+        # 공통 패널 폭이 넓어져도 보라색 셀은 기존 정사각형 크기를 유지하고,
+        # 오른쪽 여유 영역은 이후 뽀모도로 개수 표시 자리로 비워 둔다.
+        timer_row = QWidget()
+        self._timer_lay = QHBoxLayout(timer_row)
+        self._timer_lay.setContentsMargins(0, 0, 0, 0)
+        self._timer_lay.setSpacing(6)
+
+        self._cell_slot = QWidget()
+        self._cell_slot.setFixedSize(CELL_HEIGHT, CELL_HEIGHT)
+        slot_lay = QVBoxLayout(self._cell_slot)
+        slot_lay.setContentsMargins(0, 0, 0, 0)
+        slot_lay.setSpacing(0)
+
         self._cell = _TimerCell(self._timer.toggle_pause)
-        self._cell.setFixedHeight(CELL_HEIGHT)
-        self._vbox.addWidget(self._cell)
+        self._cell.setFixedSize(CELL_HEIGHT, CELL_HEIGHT)
+        slot_lay.addWidget(self._cell)
         self._idle = _IdleControl(self._start_standalone, self._settings)
-        self._idle.setFixedHeight(CELL_HEIGHT)
-        self._vbox.addWidget(self._idle)
+        self._idle.setFixedSize(CELL_HEIGHT, CELL_HEIGHT)
+        slot_lay.addWidget(self._idle)
+
+        self._pomodoro_slot = QWidget()
+        self._pomodoro_slot.setFixedHeight(CELL_HEIGHT)
+        self._pomodoro_slot.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self._timer_lay.addStretch(1)
+        self._timer_lay.addWidget(self._cell_slot, 0, Qt.AlignmentFlag.AlignCenter)
+        self._timer_lay.addWidget(self._pomodoro_slot, 1)
+        self._timer_lay.addStretch(1)
+        self._sync_timer_alignment()
+        self._vbox.addWidget(timer_row)
 
         # 할일 타이머 정지(일시정지) 중 하단 버튼 2개: 완료 / 초기화(#8)
         self._paused_actions = QWidget()
@@ -310,6 +333,20 @@ class TimerPanel(_PanelBase):
             return BLOCK_PAUSED
         return BLOCK_BASE
 
+    def _is_pomodoro(self) -> bool:
+        """향후 뽀모도로 타이머가 들어오면 여기서 타입을 판별한다."""
+        return False
+
+    def _sync_timer_alignment(self) -> None:
+        if self._is_pomodoro():
+            self._pomodoro_slot.setVisible(True)
+            self._timer_lay.setStretch(0, 0)
+            self._timer_lay.setStretch(3, 1)
+        else:
+            self._pomodoro_slot.setVisible(False)
+            self._timer_lay.setStretch(0, 1)
+            self._timer_lay.setStretch(3, 1)
+
     def _start_standalone(self, seconds: int) -> None:
         self._timer.start_standalone(seconds)
 
@@ -331,6 +368,7 @@ class TimerPanel(_PanelBase):
 
     def _sync_view(self) -> None:
         """타이머 활성=셀, 비활성=idle 컨트롤. (둘 중 하나만 보이게)"""
+        self._sync_timer_alignment()
         snap = self._timer.snapshot()
         if snap is not None:
             self._idle.setVisible(False)

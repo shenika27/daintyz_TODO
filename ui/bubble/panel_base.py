@@ -20,7 +20,7 @@ from domain import policies
 from ui import theme
 from ui.qt_helpers import make_overlay_window
 
-PANEL_WIDTH = 140  # 밀린할일·타이머 공통 패널 폭(타이머 셀을 정사각형에 가깝게)
+PANEL_WIDTH = 156  # 밀린할일·타이머 공통 패널 폭(헤더 버튼 2개까지 수용)
 
 
 class _PanelBase(QWidget):
@@ -46,12 +46,12 @@ class _PanelBase(QWidget):
 
         self._head = QHBoxLayout()
         self._head.setSpacing(2)
-        title_lbl = QLabel(title)
-        title_lbl.setObjectName("overdueTitle")
-        f = title_lbl.font()
+        self._title_lbl = QLabel(title)
+        self._title_lbl.setObjectName("overdueTitle")
+        f = self._title_lbl.font()
         f.setBold(True)
-        title_lbl.setFont(f)
-        self._head.addWidget(title_lbl, 1)
+        self._title_lbl.setFont(f)
+        self._head.addWidget(self._title_lbl, 1)
         self._vbox.addLayout(self._head)
 
         self._events.theme_changed.connect(self.apply_theme)

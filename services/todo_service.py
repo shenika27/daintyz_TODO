@@ -50,6 +50,14 @@ class TodoService:
         """오늘 이전 미완료 할일을 날짜별 개수로(밀린 할일 패널용)."""
         return self._repo.incomplete_counts_before(today_iso)
 
+    def completed_items(self) -> list[Todo]:
+        """완료한 할일 목록(완료 조회 패널용)."""
+        return self._repo.completed_items()
+
+    def completed_counts(self) -> list[tuple[str, int]]:
+        """완료한 할일을 날짜별 개수로(완료 조회 패널 날짜별 보기용)."""
+        return self._repo.completed_counts()
+
     def movable_overdue_count(self, today_iso: str) -> int:
         """오늘로 옮길 수 있는 미완료 일반 할일 개수(반복 회차 제외)."""
         return self._repo.count_incomplete_regular_before(today_iso)
@@ -101,6 +109,30 @@ class TodoService:
             return
         self._repo.add_after(t.content, t.due_date, t.sort_order)
         self._notify(t.due_date)
+
+    def duplicate_completed_to_today(self, todo_id: int) -> int:
+        """완료 조회 패널용: 완료 할일 1건을 오늘 미완료 일반 할일로 복제."""
+        todo = self._repo.get(todo_id)
+        if not todo or not todo.completed or todo.hidden:
+            return 0
+        today_iso = date.today().isoformat()
+        count = self._repo.add_many([todo.content], today_iso)
+        if count:
+            self._notify(today_iso)
+            self._events.todo_added.emit()
+        return count
+
+    def duplicate_completed_date_to_today(self, iso: str) -> int:
+        """완료 조회 패널용: 해당 날짜의 완료 할일 전체를 오늘 미완료 일반 할일로 복제."""
+        snapshot = self._repo.completed_for_date(iso)
+        if not snapshot:
+            return 0
+        today_iso = date.today().isoformat()
+        count = self._repo.add_many([t.content for t in snapshot], today_iso)
+        if count:
+            self._notify(today_iso)
+            self._events.todo_added.emit()
+        return count
 
     def move(self, todo_id: int, new_iso: str, new_order: int | None = None) -> None:
         t = self._repo.get(todo_id)
