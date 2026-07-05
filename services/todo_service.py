@@ -14,6 +14,7 @@ from datetime import date, datetime
 from domain.models import Todo
 
 log = logging.getLogger(__name__)
+MAX_PINNED_PER_DAY = 2
 
 
 class TodoService:
@@ -25,12 +26,19 @@ class TodoService:
         self._undo: tuple[str, object] | None = None
 
     # ── 조회 ────────────────────────────────────────────────
-    def list_for_date(self, iso: str) -> list[Todo]:
+    def list_for_date(self, iso: str, priority_sort: bool = False) -> list[Todo]:
         # 반복 할일은 '오늘'에만 생성한다(미래/과거 날짜는 박제하지 않음).
         # 오늘을 조회하는 순간 그 날 회차가 생기고, 미래 날짜는 그 날이 와야 생긴다.
-        if iso == date.today().isoformat():
-            self._recurring.ensure_for_date(date.today())
-        return self._repo.list_for_date(iso)
+        self._ensure_recurring_if_today(iso)
+        return self._repo.list_for_date(iso, priority_sort=priority_sort)
+
+    def pinned_for_date(self, iso: str) -> list[Todo]:
+        self._ensure_recurring_if_today(iso)
+        return self._repo.pinned_for_date(iso)
+
+    def unpinned_for_date(self, iso: str, priority_sort: bool = False) -> list[Todo]:
+        self._ensure_recurring_if_today(iso)
+        return self._repo.unpinned_for_date(iso, priority_sort=priority_sort)
 
     def total_incomplete_count(self) -> int:
         """날짜와 무관하게 미완료 할일 전체 개수('할일 n개' 풍선용).
@@ -73,11 +81,12 @@ class TodoService:
         return delta.total_seconds() >= hours * 3600
 
     # ── 쓰기 ────────────────────────────────────────────────
-    def add(self, content: str, iso: str) -> None:
+    def add(self, content: str, iso: str, priority: int = 0) -> None:
         content = content.strip()
         if not content:
             return
-        self._repo.add(content, iso)
+        priority = max(0, min(3, int(priority)))
+        self._repo.add(content, iso, priority)
         self._notify(iso)
         self._events.todo_added.emit()
 
@@ -87,6 +96,8 @@ class TodoService:
             return
         now_completed = not t.completed
         self._repo.set_completed(todo_id, now_completed)
+        if now_completed and t.pinned:
+            self._repo.set_pinned(todo_id, False)
         self._notify(t.due_date)
         if now_completed:  # 미완료→완료 전환 순간만(캐릭터 리액션용)
             self._events.todo_completed.emit()
@@ -102,12 +113,37 @@ class TodoService:
         self._repo.set_content(todo_id, content)
         self._notify(t.due_date)
 
+    def set_priority(self, todo_id: int, priority: int) -> None:
+        priority = max(0, min(3, int(priority)))
+        t = self._repo.get(todo_id)
+        if not t or t.priority == priority:
+            return
+        self._set_restore_undo([t])
+        self._repo.set_priority(todo_id, priority)
+        self._notify(t.due_date)
+
+    def set_pinned(self, todo_id: int, pinned: bool) -> bool:
+        t = self._repo.get(todo_id)
+        if not t or t.hidden:
+            return False
+        if pinned:
+            if t.completed:
+                return False
+            if not t.pinned and self._repo.pinned_count_for_date(t.due_date) >= MAX_PINNED_PER_DAY:
+                return False
+        if t.pinned == pinned:
+            return True
+        self._set_restore_undo([t])
+        self._repo.set_pinned(todo_id, pinned)
+        self._notify(t.due_date)
+        return True
+
     def duplicate(self, todo_id: int) -> None:
         """할일을 복제해 원본 바로 아래에 같은 내용으로 생성(미완료 상태)."""
         t = self._repo.get(todo_id)
         if not t:
             return
-        self._repo.add_after(t.content, t.due_date, t.sort_order)
+        self._repo.add_after(t.content, t.due_date, t.sort_order, t.priority)
         self._notify(t.due_date)
 
     def duplicate_completed_to_today(self, todo_id: int) -> int:
@@ -250,6 +286,11 @@ class TodoService:
     def _set_restore_undo(self, snapshot: list[Todo]) -> None:
         self._undo = ("restore", snapshot)
         self._events.delete_undo_available.emit(True)
+
+    def _ensure_recurring_if_today(self, iso: str) -> None:
+        today = date.today()
+        if iso == today.isoformat():
+            self._recurring.ensure_for_date(today)
 
     def _notify_many(self, dates) -> None:
         for iso in dict.fromkeys(dates):

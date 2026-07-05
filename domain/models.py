@@ -5,6 +5,12 @@ from dataclasses import dataclass
 from typing import Optional
 
 
+PRIORITY_NONE = 0
+PRIORITY_LOW = 1
+PRIORITY_NORMAL = 2
+PRIORITY_HIGH = 3
+
+
 @dataclass
 class Todo:
     id: int
@@ -13,6 +19,8 @@ class Todo:
     completed: bool = False
     hidden: bool = False
     sort_order: int = 0
+    priority: int = PRIORITY_NONE
+    pinned: bool = False
     remind_at: Optional[str] = None      # 'YYYY-MM-DD HH:MM' (지금은 항상 None)
     recurring_id: Optional[int] = None
 
@@ -29,6 +37,8 @@ class Todo:
             completed=bool(row["completed"]),
             hidden=bool(row["hidden"]),
             sort_order=row["sort_order"],
+            priority=row["priority"] if "priority" in row.keys() else PRIORITY_NONE,
+            pinned=bool(row["pinned"]) if "pinned" in row.keys() else False,
             remind_at=row["remind_at"],
             recurring_id=row["recurring_id"],
         )

@@ -23,6 +23,7 @@ from PySide6.QtCore import (
     Qt,
     QTimer,
 )
+from PySide6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
     QFrame,
@@ -115,6 +116,7 @@ class BubbleWidget(QWidget):
         self.view_mode = self._settings.get(policies.KEY_LAST_VIEW, "day") or "day"
         if self.view_mode not in _ORDER:
             self.view_mode = "day"
+        self._priority_sort = False
         self._show_overdue = self._settings.get_bool(policies.KEY_OVERDUE_PANEL, True)
         self._show_timer = self._settings.get_bool(policies.KEY_TIMER_PANEL, False)
 
@@ -144,7 +146,7 @@ class BubbleWidget(QWidget):
         self._min_h: dict[str, int] = {}  # 모드별 최소 높이(측정 최댓값 캐시)
         self._grip = _ResizeGrip(self, self._on_resize_start, self._on_resize_end)
         self._grip.resize(16, 16)
-        self._input = InputBar(self._service, lambda: self.selected_iso)
+        self._input = InputBar(self._service, lambda: self.selected_iso, self._settings)
         self._vbox.addWidget(self._input)
 
         # '밀린 할일'은 말풍선과 분리된 독립 창(우측에 떠 있음)
@@ -228,6 +230,15 @@ class BubbleWidget(QWidget):
         # 오늘로 이동 (주간/월간에서만 노출, 전환버튼 왼쪽)
         self._today_btn = self._nav_btn("오늘", "오늘로 이동", self.go_today)
         bar.addWidget(self._today_btn)
+
+        self._sort_btn = QToolButton()
+        self._sort_btn.setObjectName("prioritySortBtn")
+        self._sort_btn.setIcon(QIcon(_sort_pixmap()))
+        self._sort_btn.setCheckable(True)
+        self._sort_btn.setToolTip("중요도 높은순")
+        self._sort_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._sort_btn.toggled.connect(self._on_priority_sort_changed)
+        bar.addWidget(self._sort_btn)
 
         self._expand = QToolButton()
         self._expand.setObjectName("headerBtn")
@@ -388,10 +399,12 @@ class BubbleWidget(QWidget):
             focus_todo_id = self._focus_todo_id
             self._focus_todo_id = None
             view = DayView(self.selected_iso, self._service, self._timer, self._settings,
-                           self._events, holder, focus_todo_id=focus_todo_id)
+                           self._events, holder, focus_todo_id=focus_todo_id,
+                           priority_sort=self._priority_sort)
         elif self.view_mode == "week":
             view = WeekView(self.selected_iso, self._service, self.select_date,
-                            self.open_day, self._timer, self._settings, self._events, holder)
+                            self.open_day, self._timer, self._settings, self._events, holder,
+                            priority_sort=self._priority_sort)
         else:
             view = MonthView(self.selected_iso, self._service, self.select_date,
                              self.open_day, holder)
@@ -422,6 +435,8 @@ class BubbleWidget(QWidget):
             self.view_mode in ("week", "month")
             or (self.view_mode == "day" and not self._title_is_today())
         )
+        self._sort_btn.setVisible(self.view_mode in ("day", "week"))
+        self._sort_btn.setChecked(self._priority_sort)
         # 콘텐츠 기준 크기를 '최소'로 두고, 그 이상은 사용자가 우하단 그립으로 키운다.
         self._sizing = True
         self.setMaximumSize(16_777_215, 16_777_215)  # 이전 고정 해제
@@ -511,6 +526,11 @@ class BubbleWidget(QWidget):
         if self.isVisible():
             self.render()
 
+    def _on_priority_sort_changed(self, enabled: bool) -> None:
+        self._priority_sort = enabled
+        if self.isVisible() and self.view_mode in ("day", "week"):
+            self.render()
+
     def _on_overdue_panel_changed(self, on: bool) -> None:
         """밀린할일 표시 토글(메뉴/✕/escape 공통): 설정 저장 + 배치를 한 곳에서 처리."""
         self._settings.set_bool(policies.KEY_OVERDUE_PANEL, on)
@@ -522,6 +542,8 @@ class BubbleWidget(QWidget):
         self._settings.set_bool(policies.KEY_TIMER_PANEL, on)
         self._show_timer = on
         self._position_left_column()
+        if self.isVisible() or self._panels_detached:
+            QTimer.singleShot(0, self._position_left_column)
 
     def _auto_open_timer_panel(self, tid: int) -> None:
         """할일 타이머가 닫힌 패널 상태에서 시작되면 타이머 패널을 자동으로 켠다(#B1).
@@ -661,9 +683,9 @@ class BubbleWidget(QWidget):
         if animate:
             self._stop_anim()
             self.setWindowOpacity(0.0)
-            self._overdue_panel.setWindowOpacity(0.0)
+            self._overdue_panel.setWindowOpacity(0.0 if self._show_overdue else 1.0)
             if self._timer_panel is not None:
-                self._timer_panel.setWindowOpacity(0.0)
+                self._timer_panel.setWindowOpacity(0.0 if self._show_timer else 1.0)
         self.render()  # 최소/저장 크기까지 여기서 확정(별도 adjustSize 금지: 커스텀 크기 덮어씀)
         # 위치를 먼저 잡고(이동) show → 첫 표시 시 엉뚱한 위치 깜빡임 방지
         self.move(self._placement(char_geom, screen_geom))
@@ -835,11 +857,13 @@ class BubbleWidget(QWidget):
             overdue.setFixedHeight(overdue_h)
             overdue.move(x, top)
             overdue.reload()
+            overdue.setWindowOpacity(1.0)
             overdue.show()
             overdue.raise_()
             timer.setFixedHeight(tb)
             timer.move(x, top + overdue_h + _STACK_GAP)
             timer.reload()
+            timer.setWindowOpacity(1.0)
             timer.show()
             timer.raise_()
         elif timer_on:
@@ -847,14 +871,17 @@ class BubbleWidget(QWidget):
             timer.setFixedHeight(timer.block_height())
             timer.move(x, top)
             timer.reload()
+            timer.setWindowOpacity(1.0)
             timer.show()
             timer.raise_()
         elif self._show_overdue:
             if timer is not None:
+                timer.setWindowOpacity(1.0)
                 timer.hide()
             overdue.setFixedHeight(col_h)
             overdue.move(x, top)
             overdue.reload()
+            overdue.setWindowOpacity(1.0)
             overdue.show()
             overdue.raise_()
         else:
@@ -995,3 +1022,22 @@ class BubbleWidget(QWidget):
         self._placed_side = "above"
         y = max(scr.top() + _MARGIN, min(above_y, scr.bottom() - h - _MARGIN))
         return QPoint(hx, y)
+
+
+def _sort_pixmap(size: int = 16, color: str = "#7F77DD") -> QPixmap:
+    pm = QPixmap(size, size)
+    pm.fill(QColor(0, 0, 0, 0))
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    pen = QPen(QColor(color))
+    pen.setWidthF(max(1.4, size * 0.09))
+    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+    p.setPen(pen)
+    s = size
+    for y, w in ((0.25, 0.56), (0.50, 0.40), (0.75, 0.24)):
+        p.drawLine(int(s * 0.16), int(s * y), int(s * (0.16 + w)), int(s * y))
+    p.drawLine(int(s * 0.78), int(s * 0.22), int(s * 0.78), int(s * 0.78))
+    p.drawLine(int(s * 0.66), int(s * 0.64), int(s * 0.78), int(s * 0.78))
+    p.drawLine(int(s * 0.90), int(s * 0.64), int(s * 0.78), int(s * 0.78))
+    p.end()
+    return pm

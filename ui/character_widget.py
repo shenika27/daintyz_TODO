@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from datetime import date
 
 from PySide6.QtCore import QBuffer, QByteArray, QIODevice, QPoint, QSize, QTimer, Qt
@@ -285,6 +286,8 @@ class CharacterWidget(QWidget):
     def _set_situation(self, sit: str) -> None:
         if sit != self._situation:
             self._situation = sit
+            if sit == "overdue":
+                self._mark_overdue_image_shown()
             self._update_active_movie()
             self.update()
 
@@ -306,11 +309,29 @@ class CharacterWidget(QWidget):
         delete·리액션 등 일시 상태는 호출 측에서 가드한다."""
         if self._working:
             return "pause" if self._paused else "work"
-        if self._overdue:
+        if self._overdue and self._overdue_image_allowed():
             return "overdue"
         if self._idle:
             return "idle"
         return "default"
+
+    def _overdue_image_allowed(self) -> bool:
+        interval = self._settings.get_int(
+            policies.KEY_OVERDUE_IMAGE_INTERVAL_MINUTES,
+            0,
+        )
+        if interval <= 0:
+            return True
+        last = self._settings.get_int(policies.KEY_OVERDUE_IMAGE_LAST_SHOWN, 0)
+        return time.time() - last >= interval * 60
+
+    def _mark_overdue_image_shown(self) -> None:
+        interval = self._settings.get_int(
+            policies.KEY_OVERDUE_IMAGE_INTERVAL_MINUTES,
+            0,
+        )
+        if interval > 0:
+            self._settings.set(policies.KEY_OVERDUE_IMAGE_LAST_SHOWN, str(int(time.time())))
 
     def _has_image(self, sit: str) -> bool:
         return self._pixmaps.get(sit) is not None or self._movies.get(sit) is not None
@@ -469,6 +490,7 @@ class CharacterWidget(QWidget):
 
     def _on_image_changed(self, _path: str) -> None:
         self._load_images()
+        self._refresh_situation()
 
     def paintEvent(self, _e) -> None:
         p = QPainter(self)

@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 
 from domain import policies
 from ui.bubble.todo_item import MIME_TODO, TodoItem
+from ui.bubble.todo_sections import PinnedTodoSection, pin_separator
 
 LIST_HEIGHT = 170  # 요일별 목록 최소 높이(px)
 
@@ -32,7 +33,8 @@ class _ColList(QWidget):
     (드롭은 상위가 처리)"""
 
     def __init__(self, iso: str, service, select_cb, open_day_cb, timer_service=None,
-                 settings_repo=None, events=None, parent=None):
+                 settings_repo=None, events=None, parent=None,
+                 priority_sort: bool = False):
         super().__init__(parent)
         self.iso = iso
         self._select_cb = select_cb
@@ -42,9 +44,10 @@ class _ColList(QWidget):
         lay.setContentsMargins(2, 2, 2, 2)
         lay.setSpacing(2)
         lay.setAlignment(Qt.AlignmentFlag.AlignTop)
-        for t in service.list_for_date(iso):
+        for t in service.unpinned_for_date(iso, priority_sort=priority_sort):
             item = TodoItem(t, service, compact=True, timer_service=timer_service,
-                            settings_repo=settings_repo, events=events)
+                            settings_repo=settings_repo, events=events,
+                            allow_week_move=True)
             item.request_remove.connect(service.remove)
             lay.addWidget(item)
 
@@ -58,7 +61,7 @@ class _ColList(QWidget):
 class DayColumn(QFrame):
     def __init__(self, iso: str, label: str, selected: bool, service, select_cb,
                  open_day_cb, timer_service=None, settings_repo=None, events=None,
-                 parent=None):
+                 parent=None, priority_sort: bool = False):
         super().__init__(parent)
         self.iso = iso
         self._service = service
@@ -82,6 +85,19 @@ class DayColumn(QFrame):
         head.setFont(f)
         lay.addWidget(head)
 
+        pinned = service.pinned_for_date(iso)
+        if pinned:
+            lay.addWidget(PinnedTodoSection(
+                pinned,
+                service,
+                timer_service=timer_service,
+                settings_repo=settings_repo,
+                events=events,
+                compact=True,
+                allow_week_move=True,
+            ))
+            lay.addWidget(pin_separator())
+
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setMinimumHeight(LIST_HEIGHT)  # 고정 대신 최소: 말풍선 키우면 늘어남
@@ -90,7 +106,7 @@ class DayColumn(QFrame):
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         inner = _ColList(iso, service, select_cb, open_day_cb, timer_service,
-                         settings_repo, events)
+                         settings_repo, events, priority_sort=priority_sort)
         scroll.setWidget(inner)
         lay.addWidget(scroll)
 
@@ -119,7 +135,8 @@ class DayColumn(QFrame):
 
 class WeekView(QWidget):
     def __init__(self, selected_iso: str, service, select_cb, open_day_cb,
-                 timer_service=None, settings_repo=None, events=None, parent=None):
+                 timer_service=None, settings_repo=None, events=None, parent=None,
+                 priority_sort: bool = False):
         super().__init__(parent)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         anchor = date.fromisoformat(selected_iso)
@@ -133,5 +150,6 @@ class WeekView(QWidget):
             iso = d.isoformat()
             label = policies.fmt_md(d)  # 6/17(수) 형식
             col = DayColumn(iso, label, iso == selected_iso, service, select_cb,
-                            open_day_cb, timer_service, settings_repo, events)
+                            open_day_cb, timer_service, settings_repo, events,
+                            priority_sort=priority_sort)
             lay.addWidget(col, 1)

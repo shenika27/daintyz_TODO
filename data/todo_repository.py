@@ -16,13 +16,48 @@ class TodoRepository:
         self.conn = db.conn
 
     # ── 조회 ────────────────────────────────────────────────
-    def list_for_date(self, iso: str) -> list[Todo]:
+    def list_for_date(self, iso: str, priority_sort: bool = False) -> list[Todo]:
+        order_by = (
+            "pinned DESC, priority DESC, sort_order, id"
+            if priority_sort
+            else "pinned DESC, sort_order, id"
+        )
         rows = self.conn.execute(
             "SELECT * FROM todos WHERE due_date = ? AND hidden = 0 "
+            f"ORDER BY {order_by}",
+            (iso,),
+        ).fetchall()
+        return [Todo.from_row(r) for r in rows]
+
+    def pinned_for_date(self, iso: str) -> list[Todo]:
+        rows = self.conn.execute(
+            "SELECT * FROM todos "
+            "WHERE due_date = ? AND hidden = 0 AND completed = 0 AND pinned = 1 "
             "ORDER BY sort_order, id",
             (iso,),
         ).fetchall()
         return [Todo.from_row(r) for r in rows]
+
+    def unpinned_for_date(self, iso: str, priority_sort: bool = False) -> list[Todo]:
+        order_by = (
+            "priority DESC, sort_order, id"
+            if priority_sort
+            else "sort_order, id"
+        )
+        rows = self.conn.execute(
+            "SELECT * FROM todos WHERE due_date = ? AND hidden = 0 AND pinned = 0 "
+            f"ORDER BY {order_by}",
+            (iso,),
+        ).fetchall()
+        return [Todo.from_row(r) for r in rows]
+
+    def pinned_count_for_date(self, iso: str) -> int:
+        r = self.conn.execute(
+            "SELECT COUNT(*) FROM todos "
+            "WHERE due_date = ? AND hidden = 0 AND completed = 0 AND pinned = 1",
+            (iso,),
+        ).fetchone()
+        return r[0] if r else 0
 
     def has_incomplete_before(self, iso: str) -> bool:
         """주어진 날짜 이전(< iso)에 미완료·미숨김 할일이 하나라도 있는지."""
@@ -154,17 +189,23 @@ class TodoRepository:
         ).fetchone()[0]
 
     # ── 쓰기 ────────────────────────────────────────────────
-    def add(self, content: str, iso: str) -> int:
+    def add(self, content: str, iso: str, priority: int = 0) -> int:
         order = self._next_order(iso)
         cur = self.conn.execute(
-            "INSERT INTO todos (content, due_date, sort_order, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (content, iso, order, _now(), _now()),
+            "INSERT INTO todos (content, due_date, sort_order, priority, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (content, iso, order, priority, _now(), _now()),
         )
         self.conn.commit()
         return cur.lastrowid
 
-    def add_after(self, content: str, iso: str, after_order: int) -> int:
+    def add_after(
+        self,
+        content: str,
+        iso: str,
+        after_order: int,
+        priority: int = 0,
+    ) -> int:
         """같은 날짜에서 after_order 바로 뒤에 새 할일을 끼워 넣는다(복제용).
         뒤따르는 항목들의 sort_order 를 한 칸씩 밀어 정렬 순서를 보존한다."""
         self.conn.execute(
@@ -173,9 +214,9 @@ class TodoRepository:
             (iso, after_order),
         )
         cur = self.conn.execute(
-            "INSERT INTO todos (content, due_date, sort_order, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (content, iso, after_order + 1, _now(), _now()),
+            "INSERT INTO todos (content, due_date, sort_order, priority, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (content, iso, after_order + 1, priority, _now(), _now()),
         )
         self.conn.commit()
         return cur.lastrowid
@@ -210,10 +251,24 @@ class TodoRepository:
         )
         self.conn.commit()
 
+    def set_priority(self, todo_id: int, priority: int) -> None:
+        self.conn.execute(
+            "UPDATE todos SET priority = ?, updated_at = ? WHERE id = ?",
+            (priority, _now(), todo_id),
+        )
+        self.conn.commit()
+
+    def set_pinned(self, todo_id: int, pinned: bool) -> None:
+        self.conn.execute(
+            "UPDATE todos SET pinned = ?, updated_at = ? WHERE id = ?",
+            (1 if pinned else 0, _now(), todo_id),
+        )
+        self.conn.commit()
+
     def complete_incomplete_for_date(self, iso: str) -> int:
         """해당 날짜의 미완료·미숨김 할일을 모두 완료 처리하고 변경 개수를 반환."""
         cur = self.conn.execute(
-            "UPDATE todos SET completed = 1, updated_at = ? "
+            "UPDATE todos SET completed = 1, pinned = 0, updated_at = ? "
             "WHERE due_date = ? AND completed = 0 AND hidden = 0",
             (_now(), iso),
         )
@@ -232,7 +287,7 @@ class TodoRepository:
         if not dates:
             return 0, []
         cur = self.conn.execute(
-            "UPDATE todos SET completed = 1, updated_at = ? "
+            "UPDATE todos SET completed = 1, pinned = 0, updated_at = ? "
             "WHERE due_date < ? AND completed = 0 AND hidden = 0",
             (_now(), iso),
         )
@@ -357,11 +412,12 @@ class TodoRepository:
         """undo(되돌리기)용: 삭제했던 일반 할일을 원래 값으로 복원."""
         cur = self.conn.execute(
             "INSERT INTO todos (content, due_date, completed, hidden, sort_order, "
-            "remind_at, recurring_id, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "priority, pinned, remind_at, recurring_id, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 todo.content, todo.due_date, int(todo.completed), int(todo.hidden),
-                todo.sort_order, todo.remind_at, todo.recurring_id, _now(), _now(),
+                todo.sort_order, todo.priority, int(todo.pinned), todo.remind_at, todo.recurring_id,
+                _now(), _now(),
             ),
         )
         self.conn.commit()
@@ -373,7 +429,7 @@ class TodoRepository:
         for todo in todos:
             self.conn.execute(
                 "UPDATE todos SET content = ?, due_date = ?, completed = ?, hidden = ?, "
-                "sort_order = ?, remind_at = ?, recurring_id = ?, updated_at = ? "
+                "sort_order = ?, priority = ?, pinned = ?, remind_at = ?, recurring_id = ?, updated_at = ? "
                 "WHERE id = ?",
                 (
                     todo.content,
@@ -381,6 +437,8 @@ class TodoRepository:
                     int(todo.completed),
                     int(todo.hidden),
                     todo.sort_order,
+                    todo.priority,
+                    int(todo.pinned),
                     todo.remind_at,
                     todo.recurring_id,
                     now,

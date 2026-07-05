@@ -8,6 +8,7 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import QLabel, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
 
 from ui.bubble.todo_item import MIME_TODO, TodoItem
+from ui.bubble.todo_sections import PinnedTodoSection, pin_separator
 from ui.bubble.week_view import LIST_HEIGHT  # 일간 목록 높이를 주간과 동일하게 공유
 
 
@@ -15,17 +16,20 @@ class _DropList(QWidget):
     """실제 할일 행들을 담고 드롭(정렬/이동)을 처리하는 안쪽 위젯."""
 
     def __init__(self, iso: str, service, timer_service=None, settings_repo=None,
-                 events=None, parent=None):
+                 events=None, parent=None, priority_sort: bool = False,
+                 show_empty: bool = True):
         super().__init__(parent)
         self.iso = iso
         self._service = service
         self._timer = timer_service
         self._settings = settings_repo
         self._events = events
-        self.setAcceptDrops(True)
+        self._priority_sort = priority_sort
+        self._show_empty = show_empty
+        self.setAcceptDrops(not priority_sort)
 
         self._lay = QVBoxLayout(self)
-        self._lay.setContentsMargins(4, 2, 4, 2)
+        self._lay.setContentsMargins(2, 2, 2, 2)
         self._lay.setSpacing(2)
         self._lay.setAlignment(Qt.AlignmentFlag.AlignTop)
 
@@ -39,8 +43,13 @@ class _DropList(QWidget):
                 w.deleteLater()
         self._items.clear()
 
-        todos = self._service.list_for_date(self.iso)
+        todos = self._service.unpinned_for_date(
+            self.iso,
+            priority_sort=self._priority_sort,
+        )
         if not todos:
+            if not self._show_empty:
+                return
             empty = QLabel("할 일이 없습니다")
             empty.setObjectName("emptyText")
             empty.setAlignment(Qt.AlignmentFlag.AlignHCenter)
@@ -54,14 +63,21 @@ class _DropList(QWidget):
             self._items.append(item)
 
     def dragEnterEvent(self, e) -> None:
+        if self._priority_sort:
+            return
         if e.mimeData().hasFormat(MIME_TODO):
             e.acceptProposedAction()
 
     def dragMoveEvent(self, e) -> None:
+        if self._priority_sort:
+            return
         if e.mimeData().hasFormat(MIME_TODO):
             e.acceptProposedAction()
 
     def dropEvent(self, e) -> None:
+        if self._priority_sort:
+            e.ignore()
+            return
         raw = bytes(e.mimeData().data(MIME_TODO)).decode()
         tid_s, src_iso = raw.split("|", 1)
         tid = int(tid_s)
@@ -92,11 +108,29 @@ class _DropList(QWidget):
 
 class DayView(QWidget):
     def __init__(self, iso: str, service, timer_service=None, settings_repo=None,
-                 events=None, parent=None, focus_todo_id: int | None = None):
+                 events=None, parent=None, focus_todo_id: int | None = None,
+                 priority_sort: bool = False):
         super().__init__(parent)
+        self._service = service
+        self._timer = timer_service
+        self._settings = settings_repo
+        self._events = events
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(2)
+
+        pinned = self._service.pinned_for_date(iso)
+        if pinned:
+            outer.addWidget(PinnedTodoSection(
+                pinned,
+                self._service,
+                timer_service=self._timer,
+                settings_repo=self._settings,
+                events=self._events,
+                margins=(4, 2, 4, 0),
+            ))
+            outer.addWidget(pin_separator())
 
         self._scroll = QScrollArea()
         self._scroll.setWidgetResizable(True)
@@ -105,7 +139,11 @@ class DayView(QWidget):
         self._scroll.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self._list = _DropList(iso, service, timer_service, settings_repo, events)
+        self._list = _DropList(
+            iso, service, timer_service, settings_repo, events,
+            priority_sort=priority_sort,
+            show_empty=not pinned,
+        )
         self._scroll.setWidget(self._list)
         outer.addWidget(self._scroll)
 

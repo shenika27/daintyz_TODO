@@ -175,6 +175,22 @@ def qss(mode: str | None) -> str:
 #bubbleRoot QToolButton:hover {{ background: {c['surface']}; }}
 #bubbleRoot QToolButton#xBtn {{ color: {c['red']}; }}
 #bubbleRoot QToolButton#headerBtn {{ padding: 4px 3px; }}
+#bubbleRoot QToolButton#prioritySortBtn {{
+    background: transparent; color: {c['sub']};
+    border: none; border-radius: 14px;
+    padding: 0px; font-weight: bold;
+}}
+#bubbleRoot QToolButton#prioritySortBtn:hover {{
+    background: {c['surface']}; color: {c['sub']};
+}}
+#bubbleRoot QToolButton#prioritySortBtn:checked {{
+    background: {c['surface']}; color: {c['sub']};
+    border: 1px solid {c['border_strong']};
+}}
+#bubbleRoot QToolButton#prioritySortBtn:pressed {{
+    background: {c['accent']}; color: #FFFFFF;
+    border: 1px solid {c['accent']};
+}}
 
 #bubbleRoot QSpinBox#dateSpin {{
     background: {c['surface']}; color: {c['text']};
@@ -202,6 +218,22 @@ def qss(mode: str | None) -> str:
     border: none; background: {c['surface']}; color: {c['text']};
     border-radius: 10px; padding: 6px 10px; selection-background-color: {c['accent']};
 }}
+#bubbleRoot QFrame#todoInputFrame {{
+    border: none; background: {c['surface']};
+    border-radius: 10px;
+}}
+#bubbleRoot QPlainTextEdit#todoInputEdit {{
+    border: none; background: transparent; color: {c['text']};
+    border-radius: 0px; padding: 6px 0px;
+    selection-background-color: {c['accent']};
+}}
+#bubbleRoot QPlainTextEdit#todoEditor,
+#bubbleRoot QPlainTextEdit#todoEditor:hover,
+#bubbleRoot QPlainTextEdit#todoEditor:focus {{
+    border: none; background: {c['surface']}; color: {c['text']};
+    border-radius: 10px; padding: 6px 10px;
+    selection-background-color: {c['accent']};
+}}
 
 #bubbleRoot QScrollArea {{ border: none; background: transparent; }}
 #bubbleRoot QScrollArea > QWidget > QWidget {{ background: transparent; }}
@@ -215,6 +247,13 @@ def qss(mode: str | None) -> str:
 #bubbleRoot QScrollBar::add-page:vertical, #bubbleRoot QScrollBar::sub-page:vertical {{ background: transparent; }}
 
 #bubbleRoot QWidget#todoRow:hover {{ background: {c['surface']}; border-radius: 9px; }}
+#bubbleRoot QFrame#pinSeparator {{
+    color: {c['border_strong']};
+    background: {c['border_strong']};
+    min-height: 1px;
+    max-height: 1px;
+    border: none;
+}}
 
 #bubbleRoot QCheckBox {{ spacing: 0; }}
 #bubbleRoot QCheckBox::indicator {{

@@ -154,6 +154,18 @@ class SettingsDialog(QDialog):
         )
         form.addRow("밀린할일 자동 이월", self._auto_rollover_cb)
 
+        self._overdue_image_interval = QSpinBox()
+        self._overdue_image_interval.setRange(0, 1440)
+        self._overdue_image_interval.setSingleStep(10)
+        self._overdue_image_interval.setSuffix(" 분  (0 = 항상)")
+        self._overdue_image_interval.setValue(
+            self._settings.get_int(policies.KEY_OVERDUE_IMAGE_INTERVAL_MINUTES, 0)
+        )
+        self._overdue_image_interval.valueChanged.connect(
+            self._change_overdue_image_interval
+        )
+        form.addRow("밀린할일 이미지 주기", self._overdue_image_interval)
+
         self._completed_view_mode = QComboBox()
         self._completed_view_mode.addItem("날짜별 보기", "summary")
         self._completed_view_mode.addItem("상세 보기", "detail")
@@ -500,6 +512,11 @@ class SettingsDialog(QDialog):
             self._completed_view_mode.currentData(),
         )
         self._events.todos_changed.emit(date.today().isoformat())
+
+    def _change_overdue_image_interval(self, value: int) -> None:
+        self._settings.set(policies.KEY_OVERDUE_IMAGE_INTERVAL_MINUTES, str(value))
+        self._settings.set(policies.KEY_OVERDUE_IMAGE_LAST_SHOWN, "0")
+        self._events.character_image_changed.emit("")
 
     def _on_scale_changed(self, v: int) -> None:
         self._settings.set(policies.KEY_CHAR_SCALE, str(v))

@@ -8,6 +8,8 @@
 """
 from __future__ import annotations
 
+from datetime import date, timedelta
+
 from PySide6.QtCore import (
     QEasingCurve,
     QMimeData,
@@ -30,7 +32,6 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QApplication,
-    QCheckBox,
     QGraphicsOpacityEffect,
     QHBoxLayout,
     QLabel,
@@ -43,12 +44,29 @@ from PySide6.QtWidgets import (
 )
 
 from domain import policies
-from domain.models import Todo
+from domain.models import (
+    PRIORITY_HIGH,
+    PRIORITY_LOW,
+    PRIORITY_NONE,
+    PRIORITY_NORMAL,
+    Todo,
+)
+from ui.bubble.priority_ui import PRIORITY_CHOICES, PriorityToggleButton, menu_qss, theme_mode
 from ui.qt_helpers import show_korean_text_menu
 
 MIME_TODO = "application/x-character-todo"
 _TOOLTIP_DELAY_MS = 500
 _ACTION_WIDTH = 46
+_PRIORITY_CYCLE = (PRIORITY_NONE, PRIORITY_LOW, PRIORITY_NORMAL, PRIORITY_HIGH)
+_PRIORITY_MENU_CHOICES = tuple(reversed(PRIORITY_CHOICES))
+
+
+def _next_priority(priority: int) -> int:
+    try:
+        idx = _PRIORITY_CYCLE.index(priority)
+    except ValueError:
+        return PRIORITY_NONE
+    return _PRIORITY_CYCLE[(idx + 1) % len(_PRIORITY_CYCLE)]
 
 
 class _TodoEditor(QPlainTextEdit):
@@ -56,6 +74,7 @@ class _TodoEditor(QPlainTextEdit):
 
     def __init__(self, text: str, parent=None):
         super().__init__(parent)
+        self.setObjectName("todoEditor")
         self.setPlainText(text)
         self.setTabChangesFocus(True)
         self.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
@@ -97,7 +116,8 @@ class TodoItem(QWidget):
     request_remove = Signal(int)
 
     def __init__(self, todo: Todo, service, compact: bool = False,
-                 timer_service=None, settings_repo=None, events=None, parent=None):
+                  timer_service=None, settings_repo=None, events=None, parent=None,
+                  allow_drag: bool = True, allow_week_move: bool = False):
         super().__init__(parent)
         self.todo = todo
         self._service = service
@@ -105,6 +125,8 @@ class TodoItem(QWidget):
         self._settings = settings_repo
         self._events = events
         self._compact = compact
+        self._allow_drag = allow_drag
+        self._allow_week_move = allow_week_move
         self._press_pos: QPoint | None = None
         self._dragged = False
         self._editing = False
@@ -117,10 +139,15 @@ class TodoItem(QWidget):
         lay.setContentsMargins(8, 4, 6, 4)
         lay.setSpacing(6)
 
-        self.check = QCheckBox()
-        self.check.setChecked(todo.completed)
+        self.check = PriorityToggleButton(
+            todo.priority,
+            todo.completed,
+            self._settings,
+            size=19,
+            visual_size=14,
+        )
         self.check.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.check.stateChanged.connect(self._on_checkbox)
+        self.check.clicked.connect(self._cycle_priority)
         lay.addWidget(self.check)
         # setVisible 은 반드시 addWidget(부모 지정) 뒤에. 부모 없는 위젯에 setVisible(True)
         # 를 하면 잠깐 독립 최상위 창으로 떴다 사라지는 깜빡임이 생긴다.
@@ -244,11 +271,14 @@ class TodoItem(QWidget):
             old_overlay.deleteLater()
             self._focus_overlay = None
 
-    # ── 완료 토글 ───────────────────────────────────────────
-    def _on_checkbox(self, _state: int) -> None:
+    # ── 중요도 순환 ─────────────────────────────────────────
+    def _cycle_priority(self) -> None:
         if self._editing:
             return
-        self._service.toggle(self.todo.id)
+        next_priority = _next_priority(self.todo.priority)
+        self.todo.priority = next_priority
+        self.check.set_priority(next_priority)
+        self._service.set_priority(self.todo.id, next_priority)
 
     def _apply_strike(self) -> None:
         f: QFont = self.label.font()
@@ -348,13 +378,57 @@ class TodoItem(QWidget):
         else:
             super().mousePressEvent(e)
 
-    # ── 우클릭 메뉴(편집 + 타이머 + 복제) ───────────────────
+    # ── 우클릭 메뉴(편집 + 중요도 + 고정 + 타이머 + 복제) ───────────────────
     def _show_context_menu(self, global_pos: QPoint) -> None:
         menu = QMenu(self)
         edit = menu.addAction("편집")
         edit.triggered.connect(self._enter_edit)
         menu.addSeparator()
+        self._add_priority_menu(menu)
+        self._add_pin_action(menu)
+        self._add_week_move_actions(menu)
+        self._add_timer_actions(menu)
+        self._add_delete_action(menu)
+        menu.exec(global_pos)
 
+    def _add_priority_menu(self, menu: QMenu) -> None:
+        priority_menu = menu.addMenu("중요도")
+        priority_menu.setStyleSheet(menu_qss(theme_mode(self._settings)))
+        for value, label in _PRIORITY_MENU_CHOICES:
+            act = priority_menu.addAction(label)
+            act.setCheckable(True)
+            act.setChecked(self.todo.priority == value)
+            act.triggered.connect(
+                lambda _checked=False, priority=value: self._service.set_priority(
+                    self.todo.id, priority
+                )
+            )
+        menu.addSeparator()
+
+    def _add_pin_action(self, menu: QMenu) -> None:
+        if self.todo.pinned:
+            pin = menu.addAction("상단고정 해제")
+            pin.triggered.connect(lambda: self._service.set_pinned(self.todo.id, False))
+            menu.addSeparator()
+        elif not self.todo.completed:
+            pin = menu.addAction("상단고정")
+            pin.triggered.connect(lambda: self._service.set_pinned(self.todo.id, True))
+            menu.addSeparator()
+
+    def _add_week_move_actions(self, menu: QMenu) -> None:
+        if not self._allow_week_move or self.todo.completed:
+            return
+        prev_week = menu.addAction("이전 주로 이동")
+        prev_week.triggered.connect(lambda: self._move_by_days(-7))
+        next_week = menu.addAction("다음 주로 이동")
+        next_week.triggered.connect(lambda: self._move_by_days(7))
+        menu.addSeparator()
+
+    def _move_by_days(self, days: int) -> None:
+        new_iso = (date.fromisoformat(self.todo.due_date) + timedelta(days=days)).isoformat()
+        self._service.move(self.todo.id, new_iso)
+
+    def _add_timer_actions(self, menu: QMenu) -> None:
         timer_running = self._timer is not None and self._timer.is_active(self.todo.id)
         if timer_running:
             act = menu.addAction("타이머 해제")
@@ -365,12 +439,11 @@ class TodoItem(QWidget):
                 act.triggered.connect(self._set_timer)
             dup = menu.addAction("복제")
             dup.triggered.connect(lambda: self._service.duplicate(self.todo.id))
-        # 주간(compact) 뷰는 hover 삭제 아이콘이 없으므로 메뉴에 '삭제' 제공
-        if self._compact:
-            menu.addSeparator()
-            rm = menu.addAction("삭제")
-            rm.triggered.connect(lambda: self.request_remove.emit(self.todo.id))
-        menu.exec(global_pos)
+        menu.addSeparator()
+
+    def _add_delete_action(self, menu: QMenu) -> None:
+        rm = menu.addAction("삭제")
+        rm.triggered.connect(lambda: self.request_remove.emit(self.todo.id))
 
     def _set_timer(self) -> None:
         from ui.timer_setup_dialog import TimerSetupDialog
@@ -425,6 +498,8 @@ class TodoItem(QWidget):
             self._events.timer_panel_changed.emit(True)
 
     def _start_drag(self) -> None:
+        if not self._allow_drag:
+            return
         self._dragged = True
         self._tip_timer.stop()
         drag = QDrag(self)
