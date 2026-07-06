@@ -39,6 +39,7 @@ KEY_HOTKEY_CHARACTER = "hotkey.character"          # 캐릭터 토글
 KEY_HOTKEY_TODAY = "hotkey.today"                  # 오늘로 이동
 KEY_HOTKEY_OVERDUE = "hotkey.overdue"              # 밀린할일 패널 토글
 KEY_HOTKEY_TIMER = "hotkey.timer_panel"            # 타이머 패널 토글
+KEY_HOTKEY_SCOPE = "hotkey.scope"                  # 'focused' | 'global'
 KEY_BUBBLE_ANIMATION = "app.bubble_animation"      # '0' | '1' — 팝업 열기/닫기 페이드 애니메이션
 KEY_TIMER_AUTO_COMPLETE = "timer.auto_complete"    # '0' | '1' — 타이머 완료 시 할일 자동 완료
 KEY_TIMER_STEP = "timer.adjust_step"               # 타이머 −/+ 증감 간격(초). 1분 미만은 항상 5초 고정.
@@ -61,6 +62,9 @@ DEFAULT_HOTKEY_TODAY = "Ctrl+Shift+U"
 DEFAULT_HOTKEY_OVERDUE = "Ctrl+Shift+O"
 DEFAULT_HOTKEY_TIMER = "Ctrl+Shift+P"
 DEFAULT_HOTKEY_UNDO = "Ctrl+Shift+Z"
+DEFAULT_HOTKEY_SCOPE = "focused"
+HOTKEY_SCOPE_FOCUSED = "focused"
+HOTKEY_SCOPE_GLOBAL = "global"
 
 
 WEEKDAYS_KR = ["일", "월", "화", "수", "목", "금", "토"]

@@ -621,6 +621,17 @@ class SettingsDialog(QDialog):
         form = QFormLayout()
         v.addLayout(form)
 
+        self._hotkey_scope = QComboBox()
+        self._hotkey_scope.addItem("현재 앱이 포커스 중일 때만", policies.HOTKEY_SCOPE_FOCUSED)
+        self._hotkey_scope.addItem("전역 단축키", policies.HOTKEY_SCOPE_GLOBAL)
+        scope = self._settings.get(policies.KEY_HOTKEY_SCOPE, policies.DEFAULT_HOTKEY_SCOPE)
+        scope_index = self._hotkey_scope.findData(scope)
+        if scope_index < 0:
+            scope_index = self._hotkey_scope.findData(policies.DEFAULT_HOTKEY_SCOPE)
+        self._hotkey_scope.setCurrentIndex(scope_index)
+        self._hotkey_scope.currentIndexChanged.connect(self._save_hotkey_scope)
+        form.addRow("단축키 적용 범위", self._hotkey_scope)
+
         # (라벨, 설정키, 기본값)
         self._hotkey_defs = [
             ("투두 목록 토글", policies.KEY_HOTKEY_TODO, policies.DEFAULT_HOTKEY_TODO),
@@ -643,7 +654,7 @@ class SettingsDialog(QDialog):
         reset.clicked.connect(self._reset_hotkeys)
         v.addWidget(reset)
 
-        info = QLabel("입력란을 클릭하고 원하는 조합을 누르세요. 같은 조합은 중복될 수 없습니다.")
+        info = QLabel("입력란을 클릭하고 원하는 조합을 누르세요. 같은 조합은 중복될 수 없고, Ctrl/Alt/Shift/Win 중 하나를 포함해야 합니다.")
         info.setObjectName("subText")
         info.setWordWrap(True)
         v.addWidget(info)
@@ -651,8 +662,14 @@ class SettingsDialog(QDialog):
         return w
 
     def _save_hotkey(self, key: str) -> None:
-        seq = self._hotkey_edits[key].keySequence().toString()
+        key_sequence = self._hotkey_edits[key].keySequence()
+        seq = key_sequence.toString()
         default = next(d for _l, k, d in self._hotkey_defs if k == key)
+        if seq and not key_sequence[0].keyboardModifiers():
+            QMessageBox.warning(self, "단축키", "Ctrl, Alt, Shift, Win 중 하나를 포함해주세요.")
+            prev = self._settings.get(key, default) or default
+            self._hotkey_edits[key].setKeySequence(QKeySequence(prev))
+            return
         # 중복 검사: 다른 항목과 같은 조합이면 되돌림
         for other, edit in self._hotkey_edits.items():
             if other != key and seq and edit.keySequence().toString() == seq:
@@ -663,10 +680,21 @@ class SettingsDialog(QDialog):
         self._settings.set(key, seq)
         self._events.hotkeys_changed.emit()
 
+    def _save_hotkey_scope(self) -> None:
+        scope = self._hotkey_scope.currentData()
+        if scope not in (policies.HOTKEY_SCOPE_FOCUSED, policies.HOTKEY_SCOPE_GLOBAL):
+            scope = policies.DEFAULT_HOTKEY_SCOPE
+        self._settings.set(policies.KEY_HOTKEY_SCOPE, scope)
+        self._events.hotkeys_changed.emit()
+
     def _reset_hotkeys(self) -> None:
         for _label, key, default in self._hotkey_defs:
             self._settings.set(key, default)
             self._hotkey_edits[key].setKeySequence(QKeySequence(default))
+        self._settings.set(policies.KEY_HOTKEY_SCOPE, policies.DEFAULT_HOTKEY_SCOPE)
+        old_blocked = self._hotkey_scope.blockSignals(True)
+        self._hotkey_scope.setCurrentIndex(self._hotkey_scope.findData(policies.DEFAULT_HOTKEY_SCOPE))
+        self._hotkey_scope.blockSignals(old_blocked)
         self._events.hotkeys_changed.emit()
 
     def _toggle_autostart(self, on: bool) -> None:

@@ -15,6 +15,7 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 from core import logging_config
 from core.events import EventBus
 from core.global_hotkeys import GlobalHotkeys
+from core.local_hotkeys import LocalHotkeys
 from domain import policies
 from data.database import Database
 from data.recurring_repository import RecurringRepository
@@ -94,8 +95,9 @@ class AppController:
         # 타이머 대상 할일이 외부에서 삭제/완료되면 타이머 해제
         self.events.todos_changed.connect(self._validate_timer)
 
-        # 전역 단축키 (Windows). 설정 변경 시 재등록.
+        # 단축키. 기본은 앱 포커스 중만 동작하고, 옵션으로 전역 단축키를 쓴다.
         self.hotkeys = GlobalHotkeys(self.app)
+        self.local_hotkeys = LocalHotkeys(self.app)
         self._register_hotkeys()
         self.events.hotkeys_changed.connect(self._register_hotkeys)
 
@@ -185,10 +187,13 @@ class AppController:
         if t is None or t.completed:
             self.timer_service.cancel()
 
-    # ── 전역 단축키 ─────────────────────────────────────────
+    # ── 단축키 ─────────────────────────────────────────────
     def _register_hotkeys(self) -> None:
         self.hotkeys.unregister_all()
+        self.local_hotkeys.unregister_all()
         s = self.settings_repo
+        scope = s.get(policies.KEY_HOTKEY_SCOPE, policies.DEFAULT_HOTKEY_SCOPE)
+        manager = self.hotkeys if scope == policies.HOTKEY_SCOPE_GLOBAL else self.local_hotkeys
         specs = [
             (policies.KEY_HOTKEY_TODO, policies.DEFAULT_HOTKEY_TODO, self.toggle_bubble),
             (policies.KEY_HOTKEY_CHARACTER, policies.DEFAULT_HOTKEY_CHARACTER, self.toggle_character),
@@ -199,7 +204,7 @@ class AppController:
         ]
         for key, default, cb in specs:
             seq = s.get(key, default) or default
-            self.hotkeys.register(seq, cb)
+            manager.register(seq, cb)
 
     def toggle_overdue(self) -> None:
         on = not self.settings_repo.get_bool(policies.KEY_OVERDUE_PANEL, True)
@@ -226,6 +231,7 @@ class AppController:
         self._quitting = True
         try:
             self.hotkeys.unregister_all()
+            self.local_hotkeys.unregister_all()
             self.notification.stop()
             self.timer_service.cancel()
             self.timer_bubble.hide()

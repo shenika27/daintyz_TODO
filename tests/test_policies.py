@@ -35,6 +35,11 @@ def test_monthly_target_day_clamp():
     assert policies.monthly_target_day(2026, 1, 15) == 15
 
 
+def test_default_hotkey_scope_is_focused():
+    assert policies.DEFAULT_HOTKEY_SCOPE == policies.HOTKEY_SCOPE_FOCUSED
+    assert policies.HOTKEY_SCOPE_GLOBAL == "global"
+
+
 def _run_all():
     fns = [v for k, v in globals().items() if k.startswith("test_") and callable(v)]
     for fn in fns:
