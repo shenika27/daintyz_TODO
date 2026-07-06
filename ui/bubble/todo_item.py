@@ -32,6 +32,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QApplication,
+    QCheckBox,
     QGraphicsOpacityEffect,
     QHBoxLayout,
     QLabel,
@@ -51,7 +52,7 @@ from domain.models import (
     PRIORITY_NORMAL,
     Todo,
 )
-from ui.bubble.priority_ui import PRIORITY_CHOICES, PriorityToggleButton, menu_qss, theme_mode
+from ui.bubble.priority_ui import PRIORITY_CHOICES, PriorityDotButton, menu_qss, theme_mode
 from ui.qt_helpers import show_korean_text_menu
 
 MIME_TODO = "application/x-character-todo"
@@ -138,18 +139,26 @@ class TodoItem(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
 
         lay = QHBoxLayout(self)
-        lay.setContentsMargins(8, 4, 6, 4)
+        lay.setContentsMargins(0, 4, 6, 4)
         lay.setSpacing(6)
 
-        self.check = PriorityToggleButton(
+        self.priority_btn = PriorityDotButton(
             todo.priority,
-            todo.completed,
             self._settings,
             size=19,
             visual_size=14,
+            fixed_width=10,
+            fixed_height=19,
         )
+        self.priority_btn.setToolTip("중요도")
+        self.priority_btn.clicked.connect(self._cycle_priority)
+        lay.addWidget(self.priority_btn)
+
+        self.check = QCheckBox()
+        self.check.setChecked(todo.completed)
         self.check.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.check.clicked.connect(self._on_check_clicked)
+        self.check.setToolTip("완료")
+        self.check.clicked.connect(self._on_checkbox_clicked)
         lay.addWidget(self.check)
         # setVisible 은 반드시 addWidget(부모 지정) 뒤에. 부모 없는 위젯에 setVisible(True)
         # 를 하면 잠깐 독립 최상위 창으로 떴다 사라지는 깜빡임이 생긴다.
@@ -273,21 +282,19 @@ class TodoItem(QWidget):
             old_overlay.deleteLater()
             self._focus_overlay = None
 
-    # ── 중요도 순환 ─────────────────────────────────────────
-    def _on_check_clicked(self) -> None:
+    # ── 완료 토글 / 중요도 순환 ─────────────────────────────
+    def _on_checkbox_clicked(self) -> None:
         if self._editing:
+            self.check.setChecked(self.todo.completed)
             return
-        if self.todo.completed:
-            self._service.toggle(self.todo.id)
-            return
-        self._cycle_priority()
+        self._service.toggle(self.todo.id)
 
     def _cycle_priority(self) -> None:
         if self._editing:
             return
         next_priority = _next_priority(self.todo.priority)
         self.todo.priority = next_priority
-        self.check.set_priority(next_priority)
+        self.priority_btn.set_priority(next_priority)
         self._service.set_priority(
             self.todo.id,
             next_priority,
@@ -545,9 +552,15 @@ class TodoItem(QWidget):
         # 이 항목 텍스트 길이 기반 목표 너비(논리 픽셀)
         fm = self.label.fontMetrics()
         text_w = fm.horizontalAdvance(self.todo.content)
-        check_w = self.check.sizeHint().width()
-        # layout: left(8) + checkbox + spacing(6) + text + right(8) + 여유(8)
-        target_w = min(8 + check_w + 6 + text_w + 16, int(src.width() / dpr))
+        spacing = self.layout().spacing()
+        margins = self.layout().contentsMargins()
+        action_w = self.timer_btn.sizeHint().width() if self._timer_active else self.check.sizeHint().width()
+        leading_w = self.priority_btn.sizeHint().width() + spacing + action_w + spacing
+        # layout: margins + priority ribbon + checkbox/timer + text + small breathing room
+        target_w = min(
+            margins.left() + leading_w + text_w + margins.right() + 8,
+            int(src.width() / dpr),
+        )
 
         pm = QPixmap(int(target_w * dpr), src.height())
         pm.setDevicePixelRatio(dpr)

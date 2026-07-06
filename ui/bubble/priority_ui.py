@@ -54,21 +54,25 @@ class PriorityDotButton(QAbstractButton):
         size: int = DOT_SIZE,
         parent=None,
         visual_size: int | None = None,
+        fixed_width: int | None = None,
+        fixed_height: int | None = None,
     ):
         super().__init__(parent)
         self._priority = priority
         self._settings = settings_repo
         self._size = size
         self._visual_size = visual_size if visual_size is not None else min(size, DOT_SIZE)
+        self._fixed_width = fixed_width if fixed_width is not None else size
+        self._fixed_height = fixed_height if fixed_height is not None else size
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setFixedSize(size, size)
+        self.setFixedSize(self._fixed_width, self._fixed_height)
         self.setAutoFillBackground(False)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, True)
         self.setStyleSheet("background: transparent; border: none; padding: 0px;")
 
     def sizeHint(self) -> QSize:
-        return QSize(self._size, self._size)
+        return QSize(self._fixed_width, self._fixed_height)
 
     def set_priority(self, priority: int) -> None:
         if self._priority == priority:
@@ -91,13 +95,25 @@ class PriorityDotButton(QAbstractButton):
         pen = QPen(QColor(border))
         pen.setWidthF(1.0)
         painter.setPen(pen)
-        inset = 0.75
         s = self._visual_size
-        x = (self.width() - s) / 2
+        ribbon_w = s * 0.68
+        notch_h = s * 0.28
+        x = (self.width() - ribbon_w) / 2
         y = (self.height() - s) / 2
-        painter.drawEllipse(
-            QRectF(x + inset, y + inset, s - inset * 2, s - inset * 2)
-        )
+        left = x + 0.5
+        right = x + ribbon_w - 0.5
+        top = y + 0.5
+        bottom = y + s - 0.5
+        center = (left + right) / 2
+
+        path = QPainterPath()
+        path.moveTo(left, top)
+        path.lineTo(right, top)
+        path.lineTo(right, bottom)
+        path.lineTo(center, bottom - notch_h)
+        path.lineTo(left, bottom)
+        path.closeSubpath()
+        painter.drawPath(path)
 
     def _paint_done_check(self, painter: QPainter, mode: str) -> None:
         pen = QPen(QColor(DONE_CHECK[mode]))
@@ -158,6 +174,9 @@ class PriorityPickerPopup(QFrame):
         )
         self._settings = settings_repo
         self._anim: QPropertyAnimation | None = None
+        self._close_geometry: QRect | None = None
+        self._closing = False
+        self._really_closing = False
         self.setObjectName("priorityPopup")
         self.setAutoFillBackground(False)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
@@ -178,6 +197,7 @@ class PriorityPickerPopup(QFrame):
         pos = anchor.mapToGlobal(anchor.rect().topLeft())
         final = QRect(pos.x(), pos.y() - self.height() - gap, self.width(), self.height())
         start = QRect(pos.x(), pos.y(), self.width(), 1)
+        self._close_geometry = start
         self.setGeometry(start)
         self.show()
 
@@ -189,9 +209,40 @@ class PriorityPickerPopup(QFrame):
         anim.start()
         self._anim = anim
 
-    def closeEvent(self, event) -> None:
+    def close_animated(self) -> None:
+        if self._closing:
+            return
+        self._closing = True
         self.closed.emit()
-        super().closeEvent(event)
+
+        if self._anim is not None:
+            self._anim.stop()
+
+        end = self._close_geometry
+        if end is None:
+            end = QRect(self.x(), self.y() + self.height(), self.width(), 1)
+
+        anim = QPropertyAnimation(self, b"geometry", self)
+        anim.setDuration(120)
+        anim.setStartValue(self.geometry())
+        anim.setEndValue(end)
+        anim.setEasingCurve(QEasingCurve.Type.InCubic)
+
+        def done() -> None:
+            self._really_closing = True
+            self.close()
+            self.deleteLater()
+
+        anim.finished.connect(done)
+        anim.start()
+        self._anim = anim
+
+    def closeEvent(self, event) -> None:
+        if self._really_closing:
+            super().closeEvent(event)
+            return
+        event.ignore()
+        self.close_animated()
 
 
 def menu_qss(mode: str) -> str:

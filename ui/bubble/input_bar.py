@@ -122,10 +122,7 @@ class InputBar(QWidget):
         popup = self._priority_popup
         if popup is not None:
             self._closing_priority_popup_intentionally = True
-            popup.close()
-            popup.deleteLater()
-            self._closing_priority_popup_intentionally = False
-        self._priority_popup = None
+            popup.close_animated()
         self.priority_btn.set_priority(self._priority)
 
     def _on_priority_popup_closed(self, popup: PriorityPickerPopup) -> None:
