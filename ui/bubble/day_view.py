@@ -57,7 +57,8 @@ class _DropList(QWidget):
             return
         for t in todos:
             item = TodoItem(t, self._service, timer_service=self._timer,
-                            settings_repo=self._settings, events=self._events)
+                            settings_repo=self._settings, events=self._events,
+                            priority_sort=self._priority_sort)
             item.request_remove.connect(self._service.remove)
             self._lay.addWidget(item)
             self._items.append(item)

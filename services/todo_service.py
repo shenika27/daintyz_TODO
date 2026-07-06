@@ -113,14 +113,15 @@ class TodoService:
         self._repo.set_content(todo_id, content)
         self._notify(t.due_date)
 
-    def set_priority(self, todo_id: int, priority: int) -> None:
+    def set_priority(self, todo_id: int, priority: int, notify: bool = True) -> None:
         priority = max(0, min(3, int(priority)))
         t = self._repo.get(todo_id)
         if not t or t.priority == priority:
             return
         self._set_restore_undo([t])
         self._repo.set_priority(todo_id, priority)
-        self._notify(t.due_date)
+        if notify:
+            self._notify(t.due_date)
 
     def set_pinned(self, todo_id: int, pinned: bool) -> bool:
         t = self._repo.get(todo_id)

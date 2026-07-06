@@ -117,7 +117,8 @@ class TodoItem(QWidget):
 
     def __init__(self, todo: Todo, service, compact: bool = False,
                   timer_service=None, settings_repo=None, events=None, parent=None,
-                  allow_drag: bool = True, allow_week_move: bool = False):
+                  allow_drag: bool = True, allow_week_move: bool = False,
+                  priority_sort: bool = False):
         super().__init__(parent)
         self.todo = todo
         self._service = service
@@ -127,6 +128,7 @@ class TodoItem(QWidget):
         self._compact = compact
         self._allow_drag = allow_drag
         self._allow_week_move = allow_week_move
+        self._priority_sort = priority_sort
         self._press_pos: QPoint | None = None
         self._dragged = False
         self._editing = False
@@ -286,7 +288,11 @@ class TodoItem(QWidget):
         next_priority = _next_priority(self.todo.priority)
         self.todo.priority = next_priority
         self.check.set_priority(next_priority)
-        self._service.set_priority(self.todo.id, next_priority)
+        self._service.set_priority(
+            self.todo.id,
+            next_priority,
+            notify=self._priority_sort,
+        )
 
     def _apply_strike(self) -> None:
         f: QFont = self.label.font()

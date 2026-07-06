@@ -47,7 +47,8 @@ class _ColList(QWidget):
         for t in service.unpinned_for_date(iso, priority_sort=priority_sort):
             item = TodoItem(t, service, compact=True, timer_service=timer_service,
                             settings_repo=settings_repo, events=events,
-                            allow_week_move=True)
+                            allow_week_move=True,
+                            priority_sort=priority_sort)
             item.request_remove.connect(service.remove)
             lay.addWidget(item)
 
