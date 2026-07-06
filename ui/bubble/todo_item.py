@@ -147,7 +147,7 @@ class TodoItem(QWidget):
             visual_size=14,
         )
         self.check.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.check.clicked.connect(self._cycle_priority)
+        self.check.clicked.connect(self._on_check_clicked)
         lay.addWidget(self.check)
         # setVisible 은 반드시 addWidget(부모 지정) 뒤에. 부모 없는 위젯에 setVisible(True)
         # 를 하면 잠깐 독립 최상위 창으로 떴다 사라지는 깜빡임이 생긴다.
@@ -272,6 +272,14 @@ class TodoItem(QWidget):
             self._focus_overlay = None
 
     # ── 중요도 순환 ─────────────────────────────────────────
+    def _on_check_clicked(self) -> None:
+        if self._editing:
+            return
+        if self.todo.completed:
+            self._service.toggle(self.todo.id)
+            return
+        self._cycle_priority()
+
     def _cycle_priority(self) -> None:
         if self._editing:
             return

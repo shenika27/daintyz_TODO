@@ -297,8 +297,12 @@ class CharacterWidget(QWidget):
         — 타이머가 최우선이라 타이머가 도는 동안엔 overdue/완료 리액션보다 work 가 이긴다."""
         today = date.today().isoformat()
         self._overdue = self._service.has_overdue(today)
-        hours = int(self._settings.get(policies.KEY_IDLE_HOURS, "0") or "0")
-        self._idle = self._service.is_idle(hours)
+        hours = self._settings.get_int(policies.KEY_IDLE_HOURS, 0)
+        idle_enabled = self._bool_setting_with_legacy(
+            policies.KEY_IDLE_ENABLED,
+            hours > 0,
+        )
+        self._idle = idle_enabled and hours > 0 and self._service.is_idle(hours)
         if self._situation == "delete" or self._reacting:
             return  # 드래그/리액션 중에는 덮어쓰지 않음
         self._set_situation(self._priority_situation())
@@ -315,22 +319,54 @@ class CharacterWidget(QWidget):
             return "idle"
         return "default"
 
-    def _overdue_image_allowed(self) -> bool:
+    def _bool_setting_with_legacy(self, key: str, fallback: bool) -> bool:
+        value = self._settings.get(key)
+        if value is None:
+            return fallback
+        return value in ("1", "true", "True")
+
+    def _overdue_image_enabled(self) -> bool:
         interval = self._settings.get_int(
             policies.KEY_OVERDUE_IMAGE_INTERVAL_MINUTES,
             0,
         )
-        if interval <= 0:
-            return True
+        return self._bool_setting_with_legacy(
+            policies.KEY_OVERDUE_IMAGE_ENABLED,
+            interval > 0,
+        )
+
+    def _overdue_image_allowed(self) -> bool:
+        if not self._overdue_image_enabled():
+            return False
+        interval = max(
+            1,
+            self._settings.get_int(
+                policies.KEY_OVERDUE_IMAGE_INTERVAL_MINUTES,
+                60,
+            ),
+        )
+        duration = max(
+            1,
+            self._settings.get_int(
+                policies.KEY_OVERDUE_IMAGE_DURATION_MINUTES,
+                1,
+            ),
+        )
+        duration = min(duration, interval)
         last = self._settings.get_int(policies.KEY_OVERDUE_IMAGE_LAST_SHOWN, 0)
-        return time.time() - last >= interval * 60
+        if last <= 0:
+            return True
+        elapsed = time.time() - last
+        if elapsed < duration * 60:
+            return True
+        if elapsed >= interval * 60:
+            if self._situation == "overdue":
+                self._mark_overdue_image_shown()
+            return True
+        return False
 
     def _mark_overdue_image_shown(self) -> None:
-        interval = self._settings.get_int(
-            policies.KEY_OVERDUE_IMAGE_INTERVAL_MINUTES,
-            0,
-        )
-        if interval > 0:
+        if self._overdue_image_enabled():
             self._settings.set(policies.KEY_OVERDUE_IMAGE_LAST_SHOWN, str(int(time.time())))
 
     def _has_image(self, sit: str) -> bool:
