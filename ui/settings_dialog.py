@@ -173,7 +173,7 @@ class SettingsDialog(QDialog):
         )
         self._overdue_image_enabled_cb = QCheckBox("밀린할일 캐릭터 알림")
         self._overdue_image_enabled_cb.setToolTip(
-            "밀린 할일이 있을 때 캐릭터 이미지를 정해진 주기마다 잠깐 표시합니다."
+            "밀린 할일이 있을 때 시스템 시각 기준으로 캐릭터 이미지를 잠깐 표시합니다."
         )
         self._overdue_image_enabled_cb.setChecked(overdue_enabled)
         self._overdue_image_enabled_cb.toggled.connect(self._change_overdue_image_enabled)
@@ -188,7 +188,7 @@ class SettingsDialog(QDialog):
         self._overdue_image_interval.valueChanged.connect(
             self._change_overdue_image_interval
         )
-        form.addRow("알림 간격", self._overdue_image_interval)
+        form.addRow("시각 기준 알림 간격", self._overdue_image_interval)
 
         self._overdue_image_duration = QSpinBox()
         self._overdue_image_duration.setRange(1, 1440)

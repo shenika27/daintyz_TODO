@@ -353,17 +353,9 @@ class CharacterWidget(QWidget):
             ),
         )
         duration = min(duration, interval)
-        last = self._settings.get_int(policies.KEY_OVERDUE_IMAGE_LAST_SHOWN, 0)
-        if last <= 0:
-            return True
-        elapsed = time.time() - last
-        if elapsed < duration * 60:
-            return True
-        if elapsed >= interval * 60:
-            if self._situation == "overdue":
-                self._mark_overdue_image_shown()
-            return True
-        return False
+        now = time.localtime()
+        seconds_since_midnight = (now.tm_hour * 60 + now.tm_min) * 60 + now.tm_sec
+        return seconds_since_midnight % (interval * 60) < duration * 60
 
     def _mark_overdue_image_shown(self) -> None:
         if self._overdue_image_enabled():

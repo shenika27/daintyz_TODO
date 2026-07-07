@@ -512,6 +512,7 @@ class BubbleWidget(QWidget):
         self.view_mode = "day"
         self._settings.set(policies.KEY_LAST_VIEW, "day")
         self.render()
+        QTimer.singleShot(0, self.raise_)
 
     def cycle_expand(self) -> None:
         idx = (_ORDER.index(self.view_mode) + 1) % len(_ORDER)

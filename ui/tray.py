@@ -4,6 +4,8 @@ from __future__ import annotations
 from PySide6.QtGui import QAction, QBrush, QColor, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import QMenu, QSystemTrayIcon
 
+from core import paths
+
 
 def _fallback_icon() -> QIcon:
     pm = QPixmap(32, 32)
@@ -17,11 +19,20 @@ def _fallback_icon() -> QIcon:
     return QIcon(pm)
 
 
+def _tray_icon() -> QIcon:
+    icon_path = paths.resource_dir() / "app.ico"
+    if icon_path.exists():
+        icon = QIcon(str(icon_path))
+        if not icon.isNull():
+            return icon
+    return _fallback_icon()
+
+
 class Tray(QSystemTrayIcon):
     def __init__(self, controller, parent=None):
         super().__init__(parent)
         self._controller = controller
-        self.setIcon(_fallback_icon())
+        self.setIcon(_tray_icon())
         self.setToolTip("Character TODO")
 
         menu = QMenu()
