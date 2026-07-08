@@ -282,7 +282,7 @@ class TodoRepository:
         self.conn.commit()
         return cur.lastrowid
 
-    def add_many(self, contents: list[str], iso: str) -> int:
+    def add_many(self, contents: list[str], iso: str, priority: int = 0) -> int:
         """같은 날짜 끝에 여러 일반 할일을 미완료 상태로 추가하고 개수를 반환."""
         cleaned = [c.strip() for c in contents if c.strip()]
         if not cleaned:
@@ -291,9 +291,9 @@ class TodoRepository:
         now = _now()
         for offset, content in enumerate(cleaned):
             self.conn.execute(
-                "INSERT INTO todos (content, due_date, sort_order, created_at, updated_at) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (content, iso, next_order + offset, now, now),
+                "INSERT INTO todos (content, due_date, sort_order, priority, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (content, iso, next_order + offset, priority, now, now),
             )
         self.conn.commit()
         return len(cleaned)

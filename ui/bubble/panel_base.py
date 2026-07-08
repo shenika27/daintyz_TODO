@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import QEvent, QTimer, Qt
 from PySide6.QtWidgets import (
+    QApplication,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -110,7 +111,12 @@ class _PanelBase(QWidget):
 
     def _request_companion_raise(self) -> None:
         self._events.grid_attention_requested.emit()
-        QTimer.singleShot(0, self.raise_)
+        QTimer.singleShot(0, self._raise_unless_popup)
+
+    def _raise_unless_popup(self) -> None:
+        if QApplication.activePopupWidget() is not None:
+            return
+        self.raise_()
 
     def reload(self) -> None:  # pragma: no cover - 자식이 구현
         raise NotImplementedError

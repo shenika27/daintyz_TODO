@@ -174,6 +174,20 @@ class SettingsDialog(QDialog):
         )
         form.addRow("밀린할일 자동 이월", self._auto_rollover_cb)
 
+        self._clipboard_split_cb = QCheckBox("줄바꿈 단위로 항목 분할")
+        self._clipboard_split_cb.setToolTip(
+            "붙여넣기할 때 클립보드 텍스트를 줄마다 별도 할일로 추가합니다."
+        )
+        self._clipboard_split_cb.setChecked(
+            self._settings.get_bool(policies.KEY_CLIPBOARD_SPLIT_LINES, False)
+        )
+        self._clipboard_split_cb.toggled.connect(
+            lambda on: self._settings.set_bool(
+                policies.KEY_CLIPBOARD_SPLIT_LINES, on
+            )
+        )
+        form.addRow("붙여넣기", self._clipboard_split_cb)
+
         overdue_interval = self._settings.get_int(
             policies.KEY_OVERDUE_IMAGE_INTERVAL_MINUTES,
             0,
@@ -654,6 +668,7 @@ class SettingsDialog(QDialog):
             ("밀린할일 패널 토글", policies.KEY_HOTKEY_OVERDUE, policies.DEFAULT_HOTKEY_OVERDUE),
             ("타이머 패널 토글", policies.KEY_HOTKEY_TIMER, policies.DEFAULT_HOTKEY_TIMER),
             ("삭제 되돌리기", policies.KEY_HOTKEY_UNDO, policies.DEFAULT_HOTKEY_UNDO),
+            ("붙여넣기", policies.KEY_HOTKEY_PASTE, policies.DEFAULT_HOTKEY_PASTE),
         ]
         self._hotkey_edits: dict[str, QKeySequenceEdit] = {}
         for label, key, default in self._hotkey_defs:

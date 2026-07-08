@@ -5,8 +5,9 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtWidgets import QLabel, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QLabel, QMenu, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
 
+from ui.bubble.todo_clipboard import add_paste_action
 from ui.bubble.todo_item import MIME_TODO, TodoItem
 from ui.bubble.todo_sections import PinnedTodoSection, pin_separator
 from ui.bubble.week_view import LIST_HEIGHT  # 일간 목록 높이를 주간과 동일하게 공유
@@ -53,6 +54,7 @@ class _DropList(QWidget):
             empty = QLabel("할 일이 없습니다")
             empty.setObjectName("emptyText")
             empty.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+            empty.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
             self._lay.addWidget(empty)
             return
         for t in todos:
@@ -91,6 +93,12 @@ class _DropList(QWidget):
         else:
             self._service.move(tid, self.iso, index)
         e.setDropAction(Qt.DropAction.MoveAction)
+        e.accept()
+
+    def contextMenuEvent(self, e) -> None:
+        menu = QMenu(self)
+        add_paste_action(menu, self._service, self._settings, self.iso)
+        menu.exec(e.globalPos())
         e.accept()
 
     def _drop_index(self, y: int) -> int:

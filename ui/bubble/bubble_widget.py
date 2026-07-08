@@ -45,6 +45,7 @@ from ui.bubble.input_bar import InputBar
 from ui.bubble.month_view import MonthView
 from ui.bubble.overdue_panel import PANEL_WIDTH, OverduePanel
 from ui.bubble.timer_panel import TimerPanel
+from ui.bubble.todo_clipboard import paste_todo_from_clipboard
 from ui.bubble.todo_item import TodoItem
 from ui.bubble.week_view import WeekView
 from ui.qt_helpers import make_overlay_window, set_overlay_always_on_top
@@ -372,7 +373,12 @@ class BubbleWidget(QWidget):
 
     def _request_companion_raise(self) -> None:
         self._events.grid_attention_requested.emit()
-        QTimer.singleShot(0, self.raise_)
+        QTimer.singleShot(0, self._raise_unless_popup)
+
+    def _raise_unless_popup(self) -> None:
+        if QApplication.activePopupWidget() is not None:
+            return
+        self.raise_()
 
     def _play_view_fade(self) -> None:
         """일→주→월 등 보기 전환 시 새 뷰 영역을 0→1 로 부드럽게 페이드 인(#13)."""
@@ -407,7 +413,7 @@ class BubbleWidget(QWidget):
                             priority_sort=self._priority_sort)
         else:
             view = MonthView(self.selected_iso, self._service, self.select_date,
-                             self.open_day, holder)
+                             self.open_day, self._settings, holder)
         self._view_layout.addWidget(view)
 
         # 렌더 시 날짜 인풋박스는 닫고 제목을 복원한다(편집 중 외부 갱신 대비, #4)
@@ -481,6 +487,14 @@ class BubbleWidget(QWidget):
         """현재 보기 모드를 유지한 채 오늘로 이동(일=오늘, 주=이번 주, 월=이번 달)."""
         self.selected_iso = date.today().isoformat()
         self.render()
+
+    def paste_clipboard_to_selected_date(self) -> int:
+        """단축키용: 현재 선택 날짜에 클립보드 텍스트를 할일로 추가한다."""
+        return paste_todo_from_clipboard(
+            self._service,
+            self._settings,
+            self.selected_iso,
+        )
 
     def _shift_week(self, days: int) -> None:
         """주간 보기에서 선택 날짜를 ±7일 이동(같은 요일 유지)해 전/다음 주로."""

@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QMenu,
     QScrollArea,
     QSizePolicy,
     QVBoxLayout,
@@ -22,6 +23,7 @@ from PySide6.QtWidgets import (
 )
 
 from domain import policies
+from ui.bubble.todo_clipboard import add_paste_action
 from ui.bubble.todo_item import MIME_TODO, TodoItem
 from ui.bubble.todo_sections import PinnedTodoSection, pin_separator
 
@@ -37,6 +39,8 @@ class _ColList(QWidget):
                  priority_sort: bool = False):
         super().__init__(parent)
         self.iso = iso
+        self._service = service
+        self._settings = settings_repo
         self._select_cb = select_cb
         self._open_day_cb = open_day_cb
 
@@ -58,6 +62,12 @@ class _ColList(QWidget):
     def mouseDoubleClickEvent(self, _e) -> None:
         self._open_day_cb(self.iso)
 
+    def contextMenuEvent(self, e) -> None:
+        menu = QMenu(self)
+        add_paste_action(menu, self._service, self._settings, self.iso)
+        menu.exec(e.globalPos())
+        e.accept()
+
 
 class DayColumn(QFrame):
     def __init__(self, iso: str, label: str, selected: bool, service, select_cb,
@@ -66,6 +76,7 @@ class DayColumn(QFrame):
         super().__init__(parent)
         self.iso = iso
         self._service = service
+        self._settings = settings_repo
         self._select_cb = select_cb
         self._open_day_cb = open_day_cb
         self.setObjectName("dayCol")
@@ -116,6 +127,12 @@ class DayColumn(QFrame):
 
     def mouseDoubleClickEvent(self, _e) -> None:
         self._open_day_cb(self.iso)
+
+    def contextMenuEvent(self, e) -> None:
+        menu = QMenu(self)
+        add_paste_action(menu, self._service, self._settings, self.iso)
+        menu.exec(e.globalPos())
+        e.accept()
 
     # ── 드롭(다른 요일로 이동) ──────────────────────────────
     def dragEnterEvent(self, e) -> None:

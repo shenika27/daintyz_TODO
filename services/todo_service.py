@@ -90,6 +90,14 @@ class TodoService:
         self._notify(iso)
         self._events.todo_added.emit()
 
+    def add_many(self, contents: list[str], iso: str, priority: int = 0) -> int:
+        priority = max(0, min(3, int(priority)))
+        count = self._repo.add_many(contents, iso, priority)
+        if count:
+            self._notify(iso)
+            self._events.todo_added.emit()
+        return count
+
     def toggle(self, todo_id: int) -> None:
         t = self._repo.get(todo_id)
         if not t:

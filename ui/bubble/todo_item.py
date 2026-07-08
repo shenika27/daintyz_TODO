@@ -53,6 +53,7 @@ from domain.models import (
     Todo,
 )
 from ui.bubble.priority_ui import PRIORITY_CHOICES, PriorityDotButton, menu_qss, theme_mode
+from ui.bubble.todo_clipboard import copy_todo_to_clipboard
 from ui.qt_helpers import show_korean_text_menu
 
 MIME_TODO = "application/x-character-todo"
@@ -396,18 +397,21 @@ class TodoItem(QWidget):
             e.accept()        # 이 위젯이 마우스를 잡아야 move 이벤트가 들어와 드래그가 시작됨
         elif e.button() == Qt.MouseButton.RightButton:
             self._show_context_menu(e.globalPosition().toPoint())
+            e.accept()
         else:
             super().mousePressEvent(e)
 
-    # ── 우클릭 메뉴(편집 + 중요도 + 고정 + 타이머 + 복제) ───────────────────
+    # ── 우클릭 메뉴(편집 + 복사 + 중요도 + 고정 + 이동 + 타이머 + 복제) ─────
     def _show_context_menu(self, global_pos: QPoint) -> None:
         menu = QMenu(self)
         edit = menu.addAction("편집")
         edit.triggered.connect(self._enter_edit)
+        copy = menu.addAction("복사")
+        copy.triggered.connect(lambda: copy_todo_to_clipboard(self.todo))
         menu.addSeparator()
         self._add_priority_menu(menu)
         self._add_pin_action(menu)
-        self._add_week_move_actions(menu)
+        self._add_move_actions(menu)
         self._add_timer_actions(menu)
         self._add_delete_action(menu)
         menu.exec(global_pos)
@@ -436,8 +440,13 @@ class TodoItem(QWidget):
             pin.triggered.connect(lambda: self._service.set_pinned(self.todo.id, True))
             menu.addSeparator()
 
-    def _add_week_move_actions(self, menu: QMenu) -> None:
-        if not self._allow_week_move or self.todo.completed:
+    def _add_move_actions(self, menu: QMenu) -> None:
+        if self.todo.completed:
+            return
+        next_day = menu.addAction("다음날로 이동")
+        next_day.triggered.connect(lambda: self._move_by_days(1))
+        if not self._allow_week_move:
+            menu.addSeparator()
             return
         prev_week = menu.addAction("이전 주로 이동")
         prev_week.triggered.connect(lambda: self._move_by_days(-7))

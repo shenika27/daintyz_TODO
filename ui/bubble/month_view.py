@@ -14,12 +14,14 @@ from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
     QLabel,
+    QMenu,
     QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
 
 from domain import policies
+from ui.bubble.todo_clipboard import add_paste_action
 from ui.bubble.todo_item import MIME_TODO
 
 CELL = 58  # 월간 셀 기본 한 변(px)
@@ -44,10 +46,12 @@ def _stat_badge(obj_name: str, text: str) -> QLabel:
 
 class MonthCell(QFrame):
     def __init__(self, d: date, anchor_month: int, selected: bool,
-                 total: int, done: int, service, select_cb, open_day_cb, parent=None):
+                 total: int, done: int, service, select_cb, open_day_cb,
+                 settings_repo=None, parent=None):
         super().__init__(parent)
         self.iso = d.isoformat()
         self._service = service
+        self._settings = settings_repo
         self._select_cb = select_cb
         self._open_day_cb = open_day_cb
         self.setObjectName("monthCell")
@@ -125,6 +129,12 @@ class MonthCell(QFrame):
     def mouseDoubleClickEvent(self, _e) -> None:
         self._open_day_cb(self.iso)
 
+    def contextMenuEvent(self, e) -> None:
+        menu = QMenu(self)
+        add_paste_action(menu, self._service, self._settings, self.iso)
+        menu.exec(e.globalPos())
+        e.accept()
+
     def dragEnterEvent(self, e) -> None:
         if e.mimeData().hasFormat(MIME_TODO):
             e.acceptProposedAction()
@@ -142,7 +152,15 @@ class MonthCell(QFrame):
 
 
 class MonthView(QWidget):
-    def __init__(self, selected_iso: str, service, select_cb, open_day_cb, parent=None):
+    def __init__(
+        self,
+        selected_iso: str,
+        service,
+        select_cb,
+        open_day_cb,
+        settings_repo=None,
+        parent=None,
+    ):
         super().__init__(parent)
         anchor = date.fromisoformat(selected_iso)
         grid_start, grid_end = policies.month_grid_range(anchor)
@@ -185,7 +203,7 @@ class MonthView(QWidget):
             total, done = counts.get(iso, (0, 0))
             cell = MonthCell(
                 d, anchor.month, iso == selected_iso,
-                total, done, service, select_cb, open_day_cb,
+                total, done, service, select_cb, open_day_cb, settings_repo,
             )
             lay.addWidget(cell, 1 + i // COLS, i % COLS)
 
