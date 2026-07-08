@@ -58,13 +58,13 @@ class TodoService:
         """오늘 이전 미완료 할일을 날짜별 개수로(밀린 할일 패널용)."""
         return self._repo.incomplete_counts_before(today_iso)
 
-    def completed_items(self) -> list[Todo]:
+    def completed_items(self, query: str = "") -> list[Todo]:
         """완료한 할일 목록(완료 조회 패널용)."""
-        return self._repo.completed_items()
+        return self._repo.completed_items(query)
 
-    def completed_counts(self) -> list[tuple[str, int]]:
+    def completed_counts(self, query: str = "") -> list[tuple[str, int]]:
         """완료한 할일을 날짜별 개수로(완료 조회 패널 날짜별 보기용)."""
-        return self._repo.completed_counts()
+        return self._repo.completed_counts(query)
 
     def movable_overdue_count(self, today_iso: str) -> int:
         """오늘로 옮길 수 있는 미완료 일반 할일 개수(반복 회차 제외)."""

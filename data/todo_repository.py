@@ -1,7 +1,8 @@
 """data/todo_repository.py — todos 테이블 전담. SQLite 만 아는 곳."""
 from __future__ import annotations
 
-from datetime import datetime
+import re
+from datetime import date, datetime
 
 from domain.models import RecurringRule, Todo
 
@@ -92,21 +93,31 @@ class TodoRepository:
         ).fetchall()
         return [(r["due_date"], r["c"]) for r in rows]
 
-    def completed_items(self) -> list[Todo]:
+    def completed_items(self, query: str = "") -> list[Todo]:
         """완료·미숨김 할일 전체를 최근 날짜 우선으로 반환."""
+        clause, params = self._completed_search_clause(query)
+        where = "WHERE completed = 1 AND hidden = 0"
+        if clause:
+            where += f" AND ({clause})"
         rows = self.conn.execute(
             "SELECT * FROM todos "
-            "WHERE completed = 1 AND hidden = 0 "
-            "ORDER BY due_date DESC, sort_order, id"
+            f"{where} "
+            "ORDER BY due_date DESC, sort_order, id",
+            params,
         ).fetchall()
         return [Todo.from_row(r) for r in rows]
 
-    def completed_counts(self) -> list[tuple[str, int]]:
+    def completed_counts(self, query: str = "") -> list[tuple[str, int]]:
         """완료·미숨김 할일이 있는 날짜별 개수(최근 날짜 우선)."""
+        clause, params = self._completed_search_clause(query)
+        where = "WHERE completed = 1 AND hidden = 0"
+        if clause:
+            where += f" AND ({clause})"
         rows = self.conn.execute(
             "SELECT due_date, COUNT(*) AS c FROM todos "
-            "WHERE completed = 1 AND hidden = 0 "
-            "GROUP BY due_date ORDER BY due_date DESC"
+            f"{where} "
+            "GROUP BY due_date ORDER BY due_date DESC",
+            params,
         ).fetchall()
         return [(r["due_date"], r["c"]) for r in rows]
 
@@ -187,6 +198,56 @@ class TodoRepository:
             "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM todos WHERE due_date = ?",
             (iso,),
         ).fetchone()[0]
+
+    def _completed_search_clause(self, query: str) -> tuple[str, tuple]:
+        query = query.strip()
+        if not query:
+            return "", ()
+
+        date_clause = self._completed_date_search_clause(query)
+        if date_clause is not None:
+            return date_clause
+
+        return "content LIKE ? ESCAPE '\\'", (self._like_pattern(query),)
+
+    def _completed_date_search_clause(self, query: str) -> tuple[str, tuple] | None:
+        if re.fullmatch(r"\d{4}", query):
+            year = int(query)
+            if year < 1:
+                return None
+            return "due_date >= ? AND due_date < ?", (
+                f"{year:04d}-01-01",
+                f"{year + 1:04d}-01-01",
+            )
+
+        if re.fullmatch(r"\d{4}-\d{2}", query):
+            year_text, month_text = query.split("-")
+            year = int(year_text)
+            month = int(month_text)
+            if year < 1 or not 1 <= month <= 12:
+                return None
+            start = date(year, month, 1)
+            if month == 12:
+                end = date(year + 1, 1, 1)
+            else:
+                end = date(year, month + 1, 1)
+            return "due_date >= ? AND due_date < ?", (
+                start.isoformat(),
+                end.isoformat(),
+            )
+
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", query):
+            try:
+                exact = date.fromisoformat(query)
+            except ValueError:
+                return None
+            return "due_date = ?", (exact.isoformat(),)
+
+        return None
+
+    def _like_pattern(self, text: str) -> str:
+        escaped = text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        return f"%{escaped}%"
 
     # ── 쓰기 ────────────────────────────────────────────────
     def add(self, content: str, iso: str, priority: int = 0) -> int:

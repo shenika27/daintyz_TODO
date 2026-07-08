@@ -14,6 +14,7 @@ from PySide6.QtGui import QColor, QFontMetrics, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMenu,
     QPushButton,
     QScrollArea,
@@ -164,6 +165,13 @@ class OverduePanel(_PanelBase):
         self._switch_btn.setIconSize(QSize(16, 16))
         self._add_header_button("✕", "닫기", self._close_panel)
 
+        self._completed_search = QLineEdit()
+        self._completed_search.setPlaceholderText("완료한 일 검색")
+        self._completed_search.setClearButtonEnabled(True)
+        self._completed_search.setObjectName("completedSearch")
+        self._completed_search.textChanged.connect(self.reload)
+        self._vbox.addWidget(self._completed_search)
+
         self._scroll = QScrollArea()
         self._scroll.setWidgetResizable(True)
         self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -212,6 +220,8 @@ class OverduePanel(_PanelBase):
         lay.setAlignment(Qt.AlignmentFlag.AlignTop)
 
         today_iso = date.today().isoformat()
+        query = ""
+        self._completed_search.setVisible(self._mode == _MODE_COMPLETED)
         if self._mode == _MODE_OVERDUE:
             rows = self._service.overdue_counts(today_iso)
             total = sum(cnt for _iso, cnt in rows)
@@ -223,10 +233,11 @@ class OverduePanel(_PanelBase):
             self._move_all_btn.setEnabled(movable_count > 0)
         else:
             completed_view = self._completed_view_mode()
+            query = self._completed_search.text().strip()
             rows = (
-                self._service.completed_items()
+                self._service.completed_items(query)
                 if completed_view == "detail"
-                else self._service.completed_counts()
+                else self._service.completed_counts(query)
             )
             total = (
                 len(rows)
@@ -238,7 +249,8 @@ class OverduePanel(_PanelBase):
             self._actions.setVisible(False)
 
         if not rows:
-            empty = QLabel("없음")
+            empty_text = "검색 결과 없음" if self._mode == _MODE_COMPLETED and query else "없음"
+            empty = QLabel(empty_text)
             empty.setObjectName("emptyText")
             empty.setAlignment(Qt.AlignmentFlag.AlignHCenter)
             lay.addWidget(empty)
