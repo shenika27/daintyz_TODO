@@ -116,7 +116,7 @@ class BubbleWidget(QWidget):
         self.view_mode = self._settings.get(policies.KEY_LAST_VIEW, "day") or "day"
         if self.view_mode not in _ORDER:
             self.view_mode = "day"
-        self._priority_sort = False
+        self._priority_sort = self._settings.get_bool(policies.KEY_PRIORITY_SORT, False)
         self._show_overdue = self._settings.get_bool(policies.KEY_OVERDUE_PANEL, True)
         self._show_timer = self._settings.get_bool(policies.KEY_TIMER_PANEL, False)
 
@@ -529,6 +529,7 @@ class BubbleWidget(QWidget):
 
     def _on_priority_sort_changed(self, enabled: bool) -> None:
         self._priority_sort = enabled
+        self._settings.set_bool(policies.KEY_PRIORITY_SORT, enabled)
         if self.isVisible() and self.view_mode in ("day", "week"):
             self.render()
 

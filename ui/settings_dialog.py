@@ -40,6 +40,17 @@ from domain import policies
 
 log = logging.getLogger(__name__)
 
+_OVERDUE_SCHEDULE_OPTIONS = (
+    ("매시간 정각", "hourly_top"),
+    ("매시간 30분", "hourly_half"),
+    ("하루 3번 (09:00, 13:00, 18:00)", "three_times"),
+)
+_OVERDUE_DURATION_OPTIONS = (
+    ("짧게 (10초)", "short"),
+    ("보통 (30초)", "normal"),
+    ("길게 (1분)", "long"),
+)
+
 
 def _app_version() -> str:
     from core import paths
@@ -173,37 +184,43 @@ class SettingsDialog(QDialog):
         )
         self._overdue_image_enabled_cb = QCheckBox("밀린할일 캐릭터 알림")
         self._overdue_image_enabled_cb.setToolTip(
-            "밀린 할일이 있을 때 시스템 시각 기준으로 캐릭터 이미지를 잠깐 표시합니다."
+            "밀린 할일이 있을 때 정해진 시간에 캐릭터 이미지를 잠깐 표시합니다."
         )
         self._overdue_image_enabled_cb.setChecked(overdue_enabled)
         self._overdue_image_enabled_cb.toggled.connect(self._change_overdue_image_enabled)
         form.addRow(self._overdue_image_enabled_cb)
 
-        self._overdue_image_interval = QSpinBox()
-        self._overdue_image_interval.setRange(1, 1440)
-        self._overdue_image_interval.setSingleStep(10)
-        self._overdue_image_interval.setSuffix(" 분마다")
-        self._overdue_image_interval.setValue(overdue_interval if overdue_interval > 0 else 60)
-        self._overdue_image_interval.setEnabled(overdue_enabled)
-        self._overdue_image_interval.valueChanged.connect(
-            self._change_overdue_image_interval
+        self._overdue_image_schedule = QComboBox()
+        for label, value in _OVERDUE_SCHEDULE_OPTIONS:
+            self._overdue_image_schedule.addItem(label, value)
+        self._select_data(
+            self._overdue_image_schedule,
+            self._settings.get(
+                policies.KEY_OVERDUE_IMAGE_SCHEDULE,
+                "hourly_top",
+            ),
         )
-        form.addRow("시각 기준 알림 간격", self._overdue_image_interval)
+        self._overdue_image_schedule.setEnabled(overdue_enabled)
+        self._overdue_image_schedule.currentIndexChanged.connect(
+            self._change_overdue_image_schedule
+        )
+        form.addRow("알림 시간", self._overdue_image_schedule)
 
-        self._overdue_image_duration = QSpinBox()
-        self._overdue_image_duration.setRange(1, 1440)
-        self._overdue_image_duration.setSuffix(" 분간")
-        self._overdue_image_duration.setValue(
-            self._settings.get_int(
-                policies.KEY_OVERDUE_IMAGE_DURATION_MINUTES,
-                1,
-            )
+        self._overdue_image_duration = QComboBox()
+        for label, value in _OVERDUE_DURATION_OPTIONS:
+            self._overdue_image_duration.addItem(label, value)
+        self._select_data(
+            self._overdue_image_duration,
+            self._settings.get(
+                policies.KEY_OVERDUE_IMAGE_DURATION_PRESET,
+                "normal",
+            ),
         )
         self._overdue_image_duration.setEnabled(overdue_enabled)
-        self._overdue_image_duration.valueChanged.connect(
+        self._overdue_image_duration.currentIndexChanged.connect(
             self._change_overdue_image_duration
         )
-        form.addRow("표시 시간", self._overdue_image_duration)
+        form.addRow("표시 길이", self._overdue_image_duration)
         self._sync_overdue_image_controls()
 
         self._completed_view_mode = QComboBox()
@@ -574,37 +591,34 @@ class SettingsDialog(QDialog):
         self._settings.set_bool(policies.KEY_OVERDUE_IMAGE_ENABLED, on)
         if on:
             self._settings.set(
-                policies.KEY_OVERDUE_IMAGE_INTERVAL_MINUTES,
-                str(self._overdue_image_interval.value()),
+                policies.KEY_OVERDUE_IMAGE_SCHEDULE,
+                self._overdue_image_schedule.currentData(),
             )
             self._settings.set(
-                policies.KEY_OVERDUE_IMAGE_DURATION_MINUTES,
-                str(self._overdue_image_duration.value()),
+                policies.KEY_OVERDUE_IMAGE_DURATION_PRESET,
+                self._overdue_image_duration.currentData(),
             )
-        self._settings.set(policies.KEY_OVERDUE_IMAGE_LAST_SHOWN, "0")
         self._sync_overdue_image_controls()
         self._events.character_image_changed.emit("")
 
-    def _change_overdue_image_interval(self, value: int) -> None:
-        self._settings.set(policies.KEY_OVERDUE_IMAGE_INTERVAL_MINUTES, str(value))
-        self._sync_overdue_image_controls()
-        self._settings.set(policies.KEY_OVERDUE_IMAGE_LAST_SHOWN, "0")
+    def _change_overdue_image_schedule(self, *_args) -> None:
+        self._settings.set(
+            policies.KEY_OVERDUE_IMAGE_SCHEDULE,
+            self._overdue_image_schedule.currentData(),
+        )
         self._events.character_image_changed.emit("")
 
-    def _change_overdue_image_duration(self, value: int) -> None:
-        self._settings.set(policies.KEY_OVERDUE_IMAGE_DURATION_MINUTES, str(value))
-        self._settings.set(policies.KEY_OVERDUE_IMAGE_LAST_SHOWN, "0")
+    def _change_overdue_image_duration(self, *_args) -> None:
+        self._settings.set(
+            policies.KEY_OVERDUE_IMAGE_DURATION_PRESET,
+            self._overdue_image_duration.currentData(),
+        )
         self._events.character_image_changed.emit("")
 
     def _sync_overdue_image_controls(self) -> None:
         enabled = self._overdue_image_enabled_cb.isChecked()
-        self._overdue_image_interval.setEnabled(enabled)
+        self._overdue_image_schedule.setEnabled(enabled)
         self._overdue_image_duration.setEnabled(enabled)
-        max_duration = max(1, self._overdue_image_interval.value())
-        if self._overdue_image_duration.maximum() != max_duration:
-            self._overdue_image_duration.setMaximum(max_duration)
-        if self._overdue_image_duration.value() > max_duration:
-            self._overdue_image_duration.setValue(max_duration)
 
     def _on_scale_changed(self, v: int) -> None:
         self._settings.set(policies.KEY_CHAR_SCALE, str(v))

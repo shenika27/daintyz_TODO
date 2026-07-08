@@ -53,6 +53,12 @@ _TIMER_DONE_MS = 3000     # 타이머 만료(timer_done) 리액션 표시 시간
 _GRID_REACT_MS = 1000     # 그리드 열기(open)/닫기(closed) 리액션 표시 시간
 _DELETE_REACT_MS = 1200   # 삭제 리액션 표시 시간
 _FALLBACK_EXTS = (".png", ".gif")  # 우선순위 순(둘 다 있으면 png)
+_OVERDUE_DURATION_SECONDS = {
+    "short": 10,
+    "normal": 30,
+    "long": 60,
+}
+_OVERDUE_THREE_TIMES = ((9, 0), (13, 0), (18, 0))
 
 # 상황 → 설정 키. 'default' 는 기본 이미지, 나머지는 없으면 default 로 폴백.
 _IMAGE_KEYS = {
@@ -149,9 +155,9 @@ class CharacterWidget(QWidget):
         self._events.bubble_closed.connect(self._on_bubble_closed)
         self._events.grid_attention_requested.connect(self._raise_with_grids)
 
-        # 비활성 상태는 할일 변경 없이도 시간 경과로 바뀌므로 1분마다 재확인
+        # 밀린할일 알림은 초 단위 표시라 짧게 재확인한다.
         self._idle_timer = QTimer(self)
-        self._idle_timer.setInterval(60_000)
+        self._idle_timer.setInterval(5_000)
         self._idle_timer.timeout.connect(self._refresh_situation)
         self._idle_timer.start()
 
@@ -286,8 +292,6 @@ class CharacterWidget(QWidget):
     def _set_situation(self, sit: str) -> None:
         if sit != self._situation:
             self._situation = sit
-            if sit == "overdue":
-                self._mark_overdue_image_shown()
             self._update_active_movie()
             self.update()
 
@@ -338,28 +342,23 @@ class CharacterWidget(QWidget):
     def _overdue_image_allowed(self) -> bool:
         if not self._overdue_image_enabled():
             return False
-        interval = max(
-            1,
-            self._settings.get_int(
-                policies.KEY_OVERDUE_IMAGE_INTERVAL_MINUTES,
-                60,
-            ),
-        )
-        duration = max(
-            1,
-            self._settings.get_int(
-                policies.KEY_OVERDUE_IMAGE_DURATION_MINUTES,
-                1,
-            ),
-        )
-        duration = min(duration, interval)
         now = time.localtime()
-        seconds_since_midnight = (now.tm_hour * 60 + now.tm_min) * 60 + now.tm_sec
-        return seconds_since_midnight % (interval * 60) < duration * 60
-
-    def _mark_overdue_image_shown(self) -> None:
-        if self._overdue_image_enabled():
-            self._settings.set(policies.KEY_OVERDUE_IMAGE_LAST_SHOWN, str(int(time.time())))
+        duration = _OVERDUE_DURATION_SECONDS.get(
+            self._settings.get(
+                policies.KEY_OVERDUE_IMAGE_DURATION_PRESET,
+                "normal",
+            ),
+            _OVERDUE_DURATION_SECONDS["normal"],
+        )
+        schedule = self._settings.get(
+            policies.KEY_OVERDUE_IMAGE_SCHEDULE,
+            "hourly_top",
+        )
+        if schedule == "hourly_half":
+            return now.tm_min == 30 and now.tm_sec < duration
+        if schedule == "three_times":
+            return (now.tm_hour, now.tm_min) in _OVERDUE_THREE_TIMES and now.tm_sec < duration
+        return now.tm_min == 0 and now.tm_sec < duration
 
     def _has_image(self, sit: str) -> bool:
         return self._pixmaps.get(sit) is not None or self._movies.get(sit) is not None
