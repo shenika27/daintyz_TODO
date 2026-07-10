@@ -117,6 +117,12 @@ class DayColumn(QFrame):
         scroll.setAcceptDrops(False)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll.viewport().setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        scroll.viewport().customContextMenuRequested.connect(
+            lambda pos, viewport=scroll.viewport(): self._show_paste_menu(
+                viewport.mapToGlobal(pos)
+            )
+        )
         inner = _ColList(iso, service, select_cb, open_day_cb, timer_service,
                          settings_repo, events, priority_sort=priority_sort)
         scroll.setWidget(inner)
@@ -129,10 +135,13 @@ class DayColumn(QFrame):
         self._open_day_cb(self.iso)
 
     def contextMenuEvent(self, e) -> None:
+        self._show_paste_menu(e.globalPos())
+        e.accept()
+
+    def _show_paste_menu(self, global_pos) -> None:
         menu = QMenu(self)
         add_paste_action(menu, self._service, self._settings, self.iso)
-        menu.exec(e.globalPos())
-        e.accept()
+        menu.exec(global_pos)
 
     # ── 드롭(다른 요일로 이동) ──────────────────────────────
     def dragEnterEvent(self, e) -> None:
