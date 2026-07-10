@@ -293,10 +293,11 @@ class CharacterWidget(QWidget):
             elif m.state() == QMovie.MovieState.Running:
                 m.stop()
 
-    def _set_situation(self, sit: str, restart: bool = False) -> None:
+    def _set_situation(self, sit: str, restart: bool = False, play_sound: bool = True) -> None:
         if sit != self._situation or restart:
             self._situation = sit
-            self._sounds.set_situation(sit, restart=restart)
+            if play_sound:
+                self._sounds.set_situation(sit, restart=restart)
             self._update_active_movie()
             if restart:
                 self._restart_active_movie()
@@ -704,7 +705,7 @@ class CharacterWidget(QWidget):
     def dragEnterEvent(self, e) -> None:
         if e.mimeData().hasFormat(MIME_TODO):
             e.setDropAction(Qt.DropAction.CopyAction)  # Copy = 삭제(휴지통) 의미
-            self._set_situation("delete")              # 삭제 상황 이미지로 전환
+            self._set_situation("delete", play_sound=False)  # 삭제 상황 이미지만 전환
             e.accept()
 
     def dragMoveEvent(self, e) -> None:
