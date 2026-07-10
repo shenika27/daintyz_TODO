@@ -66,8 +66,8 @@ goto :char_done
 :char_disabled
 echo disabled> "%FLAGFILE%"
 set "ENCRYPT_ASSETS=1"
-echo     -^> character change DISABLED (fixed default image, images ENCRYPTED)
-REM 잠금 빌드: 평문 이미지를 암호화 팩으로 묶는다(spec 이 팩 유무로 자동 분기).
+echo     -^> character change DISABLED (fixed default image, images/sounds ENCRYPTED)
+REM 잠금 빌드: 평문 이미지/사운드를 암호화 팩으로 묶는다(spec 이 팩 유무로 자동 분기).
 python build\pack_resources.py 1>>"%LOG%" 2>>&1
 if errorlevel 1 (
     echo Resource packing failed. See %LOG%

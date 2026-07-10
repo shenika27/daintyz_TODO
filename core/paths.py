@@ -57,6 +57,16 @@ def resource_dir() -> Path:
     return project_root() / "resources"
 
 
+def image_resource_dir() -> Path:
+    """상황별 캐릭터 이미지 리소스 디렉토리."""
+    return resource_dir() / "img"
+
+
+def sound_resource_dir() -> Path:
+    """상황별 캐릭터 사운드 리소스 디렉토리."""
+    return resource_dir() / "sound"
+
+
 def migrations_dir() -> Path:
     base = getattr(sys, "_MEIPASS", None)
     if base:

@@ -28,15 +28,26 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QMessageBox,
     QPushButton,
+    QScrollArea,
+    QSlider,
     QSpinBox,
     QTabWidget,
     QTextBrowser,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
 from core import feature_flags
 from domain import policies
+from ui.character_sound import (
+    SOUND_MODE_LOOP,
+    SOUND_MODE_ONCE,
+    SOUND_SPECS,
+    CharacterSoundPlayer,
+    SoundSpec,
+    bundled_sound_filename,
+)
 
 log = logging.getLogger(__name__)
 
@@ -75,7 +86,7 @@ class SettingsDialog(QDialog):
         self._app_quit = app_quit
 
         self.setWindowTitle(f"설정 — v{_app_version()}")
-        self.resize(420, 480)
+        self.resize(620, 620)
 
         tabs = QTabWidget()
         tabs.addTab(self._build_behavior(), "동작")
@@ -83,6 +94,7 @@ class SettingsDialog(QDialog):
         # 캐릭터 이미지 변경이 허용된 빌드에서만 '이미지' 탭 노출
         if feature_flags.character_edit_enabled():
             tabs.addTab(self._build_images(), "이미지")
+        tabs.addTab(self._build_sounds(), "사운드")
         tabs.addTab(self._build_shortcuts(), "단축키")
         tabs.addTab(self._build_recurring(), "반복 할일")
         tabs.addTab(self._build_maintenance(), "관리")
@@ -92,6 +104,11 @@ class SettingsDialog(QDialog):
         close = QPushButton("닫기")
         close.clicked.connect(self.accept)
         root.addWidget(close)
+
+    def accept(self) -> None:
+        if hasattr(self, "_sound_preview"):
+            self._sound_preview.stop()
+        super().accept()
 
     # 상황별 이미지: (표시명, 설정키, resources 폴백 베이스명)
     _IMAGE_ROWS = [
@@ -113,7 +130,7 @@ class SettingsDialog(QDialog):
         w = QWidget()
         form = QFormLayout(w)
         form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
-        intro = QLabel("상황별 캐릭터 이미지. 비우면 resources 의 기본 파일로 표시됩니다.")
+        intro = QLabel("상황별 캐릭터 이미지. 비우면 resources/img 의 기본 파일로 표시됩니다.")
         intro.setObjectName("subText")
         intro.setWordWrap(True)
         form.addRow(intro)
@@ -124,6 +141,65 @@ class SettingsDialog(QDialog):
         save.setToolTip("현재 설정된 이미지 파일을 앱 데이터 폴더에 복사해 원본 삭제에 대비합니다.")
         save.clicked.connect(self._save_custom_images)
         form.addRow(save)
+        return w
+
+    # ── 사운드 탭 ───────────────────────────────────────────
+    def _build_sounds(self) -> QWidget:
+        w = QWidget()
+        outer = QVBoxLayout(w)
+        self._sound_preview = CharacterSoundPlayer(self._settings, self)
+
+        intro = QLabel("상황별 wav/flac 사운드. 비우면 resources/sound 의 기본 파일을 사용합니다.")
+        if not feature_flags.character_edit_enabled():
+            intro.setText("잠금 빌드에서는 resources/sound 의 번들 사운드만 사용합니다.")
+        intro.setObjectName("subText")
+        intro.setWordWrap(True)
+        outer.addWidget(intro)
+
+        global_box = QGroupBox("전체")
+        global_form = QFormLayout(global_box)
+        self._sound_enabled = QCheckBox("상황별 사운드 사용")
+        self._sound_enabled.setChecked(
+            self._settings.get_bool(policies.KEY_SOUND_ENABLED, False)
+        )
+        self._sound_enabled.toggled.connect(self._change_sound_enabled)
+        global_form.addRow(self._sound_enabled)
+
+        self._sound_volume_label = QLabel()
+        self._sound_volume = QSlider(Qt.Orientation.Horizontal)
+        self._sound_volume.setRange(0, 100)
+        self._sound_volume.setValue(
+            self._settings.get_int(policies.KEY_SOUND_VOLUME, 70)
+        )
+        self._sound_volume.valueChanged.connect(self._change_sound_volume)
+        self._sound_volume.sliderReleased.connect(self._emit_sound_changed)
+        self._sync_slider_label(self._sound_volume_label, self._sound_volume.value())
+        volume_row = QHBoxLayout()
+        volume_row.addWidget(self._sound_volume, 1)
+        volume_row.addWidget(self._sound_volume_label)
+        global_form.addRow("전체 음량", volume_row)
+        outer.addWidget(global_box)
+
+        section_actions = QHBoxLayout()
+        expand_all = QPushButton("모두 펼치기")
+        expand_all.clicked.connect(lambda: self._set_all_sound_sections(True))
+        collapse_all = QPushButton("모두 접기")
+        collapse_all.clicked.connect(lambda: self._set_all_sound_sections(False))
+        section_actions.addWidget(expand_all)
+        section_actions.addWidget(collapse_all)
+        section_actions.addStretch(1)
+        outer.addLayout(section_actions)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        body = QWidget()
+        body_layout = QVBoxLayout(body)
+        self._sound_sections: list[tuple[QToolButton, QWidget]] = []
+        for spec in SOUND_SPECS:
+            body_layout.addWidget(self._make_sound_group(spec))
+        body_layout.addStretch(1)
+        scroll.setWidget(body)
+        outer.addWidget(scroll, 1)
         return w
 
     # ── 동작 탭 ─────────────────────────────────────────────
@@ -432,19 +508,20 @@ class SettingsDialog(QDialog):
             combo.setCurrentIndex(idx)
 
     def _resource_filename(self, base: str) -> str:
-        """resources 에 있는 폴백 파일명(png→gif). 없으면 'base.* (없음)'."""
+        """resources/img 에 있는 폴백 파일명(png→gif). 없으면 'base.* (없음)'."""
         from core import asset_pack, paths
 
         try:
             if asset_pack.is_encrypted_build():
                 for ext in (".png", ".gif"):
-                    if asset_pack.has(base + ext):
-                        return base + ext
+                    for name in (f"img/{base}{ext}", base + ext):
+                        if asset_pack.has(name):
+                            return name
             else:
-                res_dir = paths.resource_dir()
                 for ext in (".png", ".gif"):
-                    if (res_dir / (base + ext)).exists():
-                        return base + ext
+                    for res_dir in (paths.image_resource_dir(), paths.resource_dir()):
+                        if (res_dir / (base + ext)).exists():
+                            return base + ext
         except Exception:  # noqa: BLE001
             pass
         return f"{base}.* (없음)"
@@ -555,6 +632,149 @@ class SettingsDialog(QDialog):
             )
         else:
             QMessageBox.information(self, "이미지 저장", f"{saved}개 이미지를 저장했습니다.")
+
+    def _make_sound_group(self, spec: SoundSpec) -> QWidget:
+        group = QWidget()
+        layout = QVBoxLayout(group)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+
+        header = QToolButton()
+        header.setText(spec.label)
+        header.setCheckable(True)
+        header.setChecked(False)
+        header.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        header.setArrowType(Qt.ArrowType.RightArrow)
+        header.setAutoRaise(True)
+        layout.addWidget(header)
+
+        content = QWidget()
+        content.setVisible(False)
+        form = QFormLayout(content)
+        form.setContentsMargins(18, 0, 0, 8)
+        layout.addWidget(content)
+        header.toggled.connect(
+            lambda on, button=header, panel=content: self._set_sound_section_expanded(
+                button, panel, on
+            )
+        )
+        self._sound_sections.append((header, content))
+
+        bundled = QLabel(bundled_sound_filename(spec.base))
+        bundled.setObjectName("subText")
+        form.addRow("번들", bundled)
+
+        edit = QLineEdit(self._settings.get(spec.path_key, "") or "")
+        edit.setPlaceholderText("비우면 번들 사운드 사용")
+        edit.editingFinished.connect(
+            lambda spec=spec, edit=edit: self._apply_sound(
+                spec, edit.text().strip(), edit
+            )
+        )
+
+        browse = QPushButton("찾아보기")
+        browse.clicked.connect(lambda _checked=False, spec=spec, edit=edit: self._pick_sound(spec, edit))
+        clear = QPushButton("지움")
+        clear.setToolTip("비우면 번들 사운드 사용")
+        clear.clicked.connect(lambda _checked=False, spec=spec, edit=edit: self._apply_sound(spec, "", edit))
+        preview = QPushButton("듣기")
+        preview.clicked.connect(lambda _checked=False, spec=spec: self._preview_sound(spec))
+
+        allow_custom = feature_flags.character_edit_enabled()
+        if not allow_custom:
+            edit.setEnabled(False)
+            edit.setPlaceholderText("잠금 빌드에서는 번들 사운드만 사용")
+            browse.setEnabled(False)
+            clear.setEnabled(False)
+
+        file_row = QHBoxLayout()
+        file_row.addWidget(edit, 1)
+        file_row.addWidget(browse)
+        file_row.addWidget(clear)
+        file_row.addWidget(preview)
+        form.addRow("파일", file_row)
+
+        volume_label = QLabel()
+        volume = QSlider(Qt.Orientation.Horizontal)
+        volume.setRange(0, 100)
+        volume.setValue(self._settings.get_int(spec.volume_key, 100))
+        self._sync_slider_label(volume_label, volume.value())
+        volume.valueChanged.connect(
+            lambda value, spec=spec, label=volume_label: self._change_situation_sound_volume(
+                spec, label, value
+            )
+        )
+        volume.sliderReleased.connect(self._emit_sound_changed)
+        volume_row = QHBoxLayout()
+        volume_row.addWidget(volume, 1)
+        volume_row.addWidget(volume_label)
+        form.addRow("음량", volume_row)
+
+        mode = QComboBox()
+        mode.addItem("1회 재생", SOUND_MODE_ONCE)
+        mode.addItem("반복 재생", SOUND_MODE_LOOP)
+        self._select_data(mode, self._settings.get(spec.mode_key, SOUND_MODE_ONCE))
+        mode.currentIndexChanged.connect(
+            lambda _idx=0, spec=spec, combo=mode: self._change_situation_sound_mode(
+                spec, combo
+            )
+        )
+        form.addRow("재생", mode)
+        return group
+
+    def _set_sound_section_expanded(
+        self, button: QToolButton, content: QWidget, expanded: bool
+    ) -> None:
+        button.setArrowType(
+            Qt.ArrowType.DownArrow if expanded else Qt.ArrowType.RightArrow
+        )
+        content.setVisible(expanded)
+
+    def _set_all_sound_sections(self, expanded: bool) -> None:
+        for button, _content in self._sound_sections:
+            button.setChecked(expanded)
+
+    def _pick_sound(self, spec: SoundSpec, edit: QLineEdit) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self, "캐릭터 사운드 선택", "", "사운드 (*.wav *.flac)"
+        )
+        if path:
+            self._apply_sound(spec, path, edit)
+
+    def _apply_sound(self, spec: SoundSpec, path: str, edit: QLineEdit) -> None:
+        edit.setText(path)
+        self._settings.set(spec.path_key, path)
+        self._emit_sound_changed()
+
+    def _change_sound_enabled(self, on: bool) -> None:
+        self._settings.set_bool(policies.KEY_SOUND_ENABLED, on)
+        self._emit_sound_changed()
+
+    def _change_sound_volume(self, value: int) -> None:
+        self._sync_slider_label(self._sound_volume_label, value)
+        self._settings.set(policies.KEY_SOUND_VOLUME, str(value))
+
+    def _change_situation_sound_volume(
+        self, spec: SoundSpec, label: QLabel, value: int
+    ) -> None:
+        self._sync_slider_label(label, value)
+        self._settings.set(spec.volume_key, str(value))
+
+    def _change_situation_sound_mode(self, spec: SoundSpec, combo: QComboBox) -> None:
+        self._settings.set(spec.mode_key, combo.currentData())
+        self._emit_sound_changed()
+
+    def _preview_sound(self, spec: SoundSpec) -> None:
+        self._sound_preview.reload()
+        self._sound_preview.preview(spec.situation)
+
+    def _emit_sound_changed(self) -> None:
+        if hasattr(self, "_sound_preview"):
+            self._sound_preview.reload()
+        self._events.character_sound_changed.emit()
+
+    def _sync_slider_label(self, label: QLabel, value: int) -> None:
+        label.setText(f"{int(value)}%")
 
     def _on_font_changed(self, font: QFont) -> None:
         self._settings.set(policies.KEY_FONT, font.family())

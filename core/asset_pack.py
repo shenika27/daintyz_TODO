@@ -1,9 +1,10 @@
 """core/asset_pack.py — 암호화된 리소스 팩(resources.pak) 런타임 로더.
 
-잠금 배포(빌드 시 이미지 변경 N)에서는 resources\\ 의 이미지(png/gif)를 평문으로
+잠금 배포(빌드 시 이미지 변경 N)에서는 resources\\img 의 이미지(png/gif)와
+resources\\sound 의 사운드(wav/flac)를 평문으로
 번들하지 않고, AES-256-GCM 으로 암호화한 단일 팩 resources.pak 로만 넣는다.
 이 모듈은 팩을 메모리에서 복호화해 파일명 → 원본 bytes 로 제공한다. 디스크에는
-평문 이미지를 남기지 않는다.
+평문 리소스를 남기지 않는다.
 
 개발 실행/일반 배포(팩 없음)에서는 is_encrypted_build() 가 False → 호출측이 기존
 파일 기반 로딩을 그대로 쓴다.
@@ -17,7 +18,7 @@
     ciphertext + tag            AESGCM(nonce, plaintext) 결과
 평문(복호화 후):
     manifest_len (4, LE) | manifest(JSON utf-8) | blob0 | blob1 ...
-    manifest = [{"name": "character_default.png", "off": 0, "len": 123}, ...]
+    manifest = [{"name": "img/character_default.png", "off": 0, "len": 123}, ...]
 """
 from __future__ import annotations
 
@@ -118,5 +119,5 @@ def has(name: str) -> bool:
 
 
 def get_bytes(name: str) -> bytes | None:
-    """팩에서 파일명(예: 'character_default.png')의 원본 bytes. 없으면 None."""
+    """팩에서 파일명(예: 'img/character_default.png')의 원본 bytes. 없으면 None."""
     return _load().get(name)

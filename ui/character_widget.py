@@ -26,6 +26,7 @@ from PySide6.QtWidgets import QApplication, QMenu, QWidget
 
 from core import asset_pack, feature_flags, paths
 from domain import policies
+from ui.character_sound import CharacterSoundPlayer
 from ui.bubble.todo_item import MIME_TODO
 from ui.qt_helpers import make_overlay_window, set_overlay_always_on_top
 
@@ -84,15 +85,15 @@ def _bundled_fallback(situation: str) -> str | None:
     base = _FALLBACK_BASE[situation]
     if asset_pack.is_encrypted_build():
         for ext in _FALLBACK_EXTS:
-            name = base + ext
-            if asset_pack.has(name):
-                return f"pak:{name}"
+            for name in (f"img/{base}{ext}", base + ext):
+                if asset_pack.has(name):
+                    return f"pak:{name}"
         return None
-    res_dir = paths.resource_dir()
     for ext in _FALLBACK_EXTS:
-        cand = res_dir / (base + ext)
-        if cand.exists():
-            return str(cand)
+        for res_dir in (paths.image_resource_dir(), paths.resource_dir()):
+            cand = res_dir / (base + ext)
+            if cand.exists():
+                return str(cand)
     return None
 
 
@@ -111,6 +112,7 @@ class CharacterWidget(QWidget):
 
         self._pixmaps: dict[str, QPixmap | None] = {}
         self._movies: dict[str, QMovie | None] = {}  # 애니메이션 GIF 상황별
+        self._sounds = CharacterSoundPlayer(self._settings, self)
         self._situation = "default"   # default|overdue|idle|done|work|pause|timer_done|delete
         self._overdue = False
         self._idle = False
@@ -118,6 +120,7 @@ class CharacterWidget(QWidget):
         self._paused = False          # 타이머 정지(일시정지) 중
         self._reacting = False        # 완료/타이머완료 리액션 표시 중
         self._skip_open_reaction = False  # 우클릭 메뉴 등 리액션 없이 그리드 여는 경우
+        self._open_reaction_started_by_click = False
         self._react_sit = ""          # 리액션 상황('done'|'timer_done')
         self._press_global: QPoint | None = None
         self._press_frame: QPoint | None = None
@@ -131,6 +134,7 @@ class CharacterWidget(QWidget):
         self._refresh_situation()
         self._events.character_image_changed.connect(self._on_image_changed)
         self._events.character_scale_changed.connect(self._load_images)
+        self._events.character_sound_changed.connect(self._on_sound_changed)
         self._events.todos_changed.connect(lambda _iso: self._refresh_situation())
         self._events.todos_changed.connect(lambda _iso: self._sync_todo_count_bubble())
         self._events.todo_completed.connect(self._on_todo_completed)
@@ -289,11 +293,22 @@ class CharacterWidget(QWidget):
             elif m.state() == QMovie.MovieState.Running:
                 m.stop()
 
-    def _set_situation(self, sit: str) -> None:
-        if sit != self._situation:
+    def _set_situation(self, sit: str, restart: bool = False) -> None:
+        if sit != self._situation or restart:
             self._situation = sit
+            self._sounds.set_situation(sit, restart=restart)
             self._update_active_movie()
+            if restart:
+                self._restart_active_movie()
             self.update()
+
+    def _restart_active_movie(self) -> None:
+        movie = self._movies.get(self._resolved_situation())
+        if movie is None:
+            return
+        movie.stop()
+        movie.jumpToFrame(0)
+        movie.start()
 
     def _refresh_situation(self) -> None:
         """overdue · work · idle 여부를 재계산해 상황 반영.
@@ -363,14 +378,17 @@ class CharacterWidget(QWidget):
     def _has_image(self, sit: str) -> bool:
         return self._pixmaps.get(sit) is not None or self._movies.get(sit) is not None
 
+    def _has_sound(self, sit: str) -> bool:
+        return self._sounds.has_source(sit)
+
     def _start_reaction(self, sit: str, ms: int) -> None:
-        """sit 이미지가 있으면 ms 동안 보여주고 복귀. 없으면 리액션 생략."""
-        if not self._has_image(sit):
+        """sit 이미지 또는 사운드가 있으면 ms 동안 상황을 유지하고 복귀."""
+        if not self._has_image(sit) and not self._has_sound(sit):
             self._restore_situation()
             return
         self._reacting = True
         self._react_sit = sit
-        self._set_situation(sit)
+        self._set_situation(sit, restart=True)
         self._react_timer.start(ms)
 
     def _on_todo_completed(self) -> None:
@@ -382,10 +400,10 @@ class CharacterWidget(QWidget):
         self._start_reaction("done", _REACTION_MS)
 
     def _on_todo_added(self) -> None:
-        """할일 추가 순간: add 이미지를 잠깐. 타이머 진행 중이거나 done 리액션 중엔 생략."""
+        """할일 추가 순간: add 이미지를 잠깐. 연속 추가 시 리액션을 처음부터 다시 재생."""
         if self._working:
             return
-        if self._reacting:
+        if self._reacting and self._react_sit == "timer_done":
             return
         self._start_reaction("add", _REACTION_MS)
 
@@ -433,7 +451,9 @@ class CharacterWidget(QWidget):
     def _on_bubble_opened(self) -> None:
         """말풍선(그리드)이 열렸을 때: open 이미지를 3초 표시 후 기본 이미지 복귀.
         타이머 진행 중(정지 포함)이거나 우클릭 메뉴 경유 시엔 현재 이미지를 유지한다."""
-        if not self._working and not self._skip_open_reaction:
+        if self._open_reaction_started_by_click:
+            self._open_reaction_started_by_click = False
+        elif not self._working and not self._skip_open_reaction:
             self._start_reaction("open", _GRID_REACT_MS)
         self._skip_open_reaction = False
         self._sync_todo_count_bubble()  # 그리드 열림 → '할일 n개' 풍선 숨김
@@ -518,6 +538,10 @@ class CharacterWidget(QWidget):
     def _on_image_changed(self, _path: str) -> None:
         self._load_images()
         self._refresh_situation()
+
+    def _on_sound_changed(self) -> None:
+        self._sounds.reload()
+        self._sounds.set_situation(self._situation)
 
     def paintEvent(self, _e) -> None:
         p = QPainter(self)
@@ -635,7 +659,7 @@ class CharacterWidget(QWidget):
                 self._start_reaction("closed", _GRID_REACT_MS)  # 클릭 즉시 closed 이미지
             self._bubble.minimize_all()
         else:
-            self._restore_grids()
+            self._restore_grids(start_open_reaction=not self._working)
 
     def restore_on_startup(self) -> None:
         """앱 시작 시 이전 종료 시점의 그리드 상태 복원(open 리액션 없음).
@@ -656,7 +680,7 @@ class CharacterWidget(QWidget):
             self._bubble.show_detached_panels(self.frameGeometry(), scr)
         self._sync_timer_bubble()
 
-    def _restore_grids(self) -> None:
+    def _restore_grids(self, start_open_reaction: bool = False) -> None:
         """캐릭터 클릭으로 그리드 표시: 설정상 '켜짐'인 그리드만 보여준다(#2).
         모두 꺼져 있으면 전부 켠다(escape, #3). 설정 저장은 BubbleWidget 이 처리."""
         list_on, overdue_on, timer_on = self._bubble.grid_intent()
@@ -666,10 +690,13 @@ class CharacterWidget(QWidget):
             list_on = True  # show_for_character 가 KEY_LIST_SHOW=1 기록
         scr = self.available_geometry()
         if list_on:
+            if start_open_reaction:
+                self._open_reaction_started_by_click = True
+                self._start_reaction("open", _GRID_REACT_MS)
             self._bubble.show_for_character(self.frameGeometry(), scr)  # bubble_opened emit → open 리액션
         else:
             self._bubble.show_detached_panels(self.frameGeometry(), scr)
-            if not self._working:  # 타이머 진행 중(정지 포함)이면 work/pause 이미지 유지
+            if start_open_reaction:
                 self._start_reaction("open", _GRID_REACT_MS)  # 패널만 열릴 때도 캐릭터 클릭 → open 리액션
         self._sync_timer_bubble()
 

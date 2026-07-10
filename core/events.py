@@ -29,6 +29,8 @@ class EventBus(QObject):
     todo_removed = Signal()
     # 캐릭터 크기(%)가 바뀌었을 때
     character_scale_changed = Signal()
+    # 캐릭터 상황별 사운드 설정이 바뀌었을 때
+    character_sound_changed = Signal()
     # 글로벌 단축키 설정이 바뀌었을 때(재등록 트리거)
     hotkeys_changed = Signal()
     # 할일 타이머 시작 (todo_id)

@@ -42,7 +42,7 @@ build\build.bat
 - 빌드 시 묻는 항목:
   - **캐릭터 변경 지원 여부 (Y/n)**: `Y`(기본)=설정에서 캐릭터 이미지 변경 가능 / `n`=변경 칸 숨김(고정 캐릭터).
     환경변수로도 지정: `set CHARACTER_EDIT=0` 후 빌드.
-- **상황별 캐릭터 이미지(번들 폴백)**: 설정에서 지정하지 않으면 `resources\` 의 아래 파일을 사용합니다.
+- **상황별 캐릭터 이미지(번들 폴백)**: 설정에서 지정하지 않으면 `resources\img\` 의 아래 파일을 사용합니다.
   잠금 빌드(`CHARACTER_EDIT=0`)에서도 파일만 넣으면 적용됩니다. 확장자는 `.png` → `.gif` 순으로 찾습니다.
 
   | 상황 | 파일명(베이스) | 필수 |
@@ -52,9 +52,18 @@ build\build.bat
   | 삭제(캐릭터에 끌어다 둘 때) | `character_delete.png` / `.gif` | 선택(없으면 기본으로 폴백) |
   | 비활성(마지막 활동 후 n시간 초과) | `character_idle.png` / `.gif` | 선택(없으면 기본으로 폴백) |
   | 완료 리액션(체크 시 잠깐) | `character_done.png` / `.gif` | 선택(없으면 리액션 생략) |
+  | 할일 추가 리액션 | `character_add.png` / `.gif` | 선택(없으면 리액션 생략) |
+  | 타이머 중 | `character_work.png` / `.gif` | 선택(없으면 기본으로 폴백) |
+  | 타이머 정지 | `character_pause.png` / `.gif` | 선택(없으면 기본으로 폴백) |
+  | 타이머 완료 | `character_timer_done.png` / `.gif` | 선택(없으면 리액션 생략) |
+  | 목록 열림 | `character_open.png` / `.gif` | 선택(없으면 리액션 생략) |
+  | 목록 닫힘 | `character_closed.png` / `.gif` | 선택(없으면 리액션 생략) |
 
   우선순위는 삭제 > 완료 리액션 > 밀린 할일 > 비활성 > 기본. 투명 배경 권장이며 앱이 비율 유지로 축소합니다.
   **GIF는 애니메이션으로 재생됩니다**(현재 상황의 GIF만 재생). PNG는 정지 이미지입니다.
+- **상황별 캐릭터 사운드**: 설정의 `사운드` 탭에서 전체 사용 여부, 전체 음량, 상황별 wav/flac 파일, 상황별 음량, 1회/반복 재생을 정합니다.
+  설정에서 지정하지 않으면 `resources\sound\character_상황.wav` → `.flac` 순으로 사용합니다. 기본 상황(`character_default`)은 사운드 대상이 아닙니다.
+  잠금 빌드(`CHARACTER_EDIT=0`)에서는 사용자 파일 선택이 막히고, 번들/암호화 팩의 wav/flac만 사용합니다.
 - 설치본(선택): Inno Setup 설치 후 `set MAKE_INSTALLER=1` 로 빌드하면
   `build\installer_out\CharacterTodo-Setup-x.y.z.exe` 도 생성됩니다(보통은 불필요).
 - 트레이/exe 아이콘을 바꾸려면 `resources\app.ico` 를 추가하세요(없어도 동작).

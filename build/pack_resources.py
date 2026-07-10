@@ -1,8 +1,8 @@
-"""build/pack_resources.py — 빌드 시 리소스 이미지를 암호화 팩으로 묶는다.
+"""build/pack_resources.py — 빌드 시 리소스 이미지/사운드를 암호화 팩으로 묶는다.
 
 잠금 배포(이미지 변경 N)에서만 실행. 프로젝트 루트에서 호출한다고 가정.
   1. 임의 32B 키 생성
-  2. resources\\*.png|gif 를 AES-256-GCM 단일 팩 resources\\resources.pak 로 암호화
+  2. resources\\img, resources\\sound 의 png|gif|wav|flac 를 AES-256-GCM 단일 팩 resources\\resources.pak 로 암호화
   3. 키를 XOR 마스킹해 core\\_asset_key.py 로 생성(바이트코드에 심겨 배포됨)
 
 키는 빌드마다 새로 만들고 파일로 보관하지 않는다(onefile 단일 exe 라 릴리즈 간
@@ -17,28 +17,30 @@ import json
 import os
 import struct
 import sys
+from pathlib import Path
 
 MAGIC = b"CTPK"
 FORMAT_VERSION = 1
 KEY_MODE_EMBEDDED = 0
 PACK_ID = "builtin"
-_EXTS = (".png", ".gif")
+_EXTS = (".png", ".gif", ".wav", ".flac")
 
 
 def _build_plaintext(res_dir: str) -> tuple[bytes, list[dict]]:
     manifest = []
     blobs: list[bytes] = []
     off = 0
-    for name in sorted(os.listdir(res_dir)):
-        if not name.lower().endswith(_EXTS):
+    root = Path(res_dir)
+    for path in sorted(root.rglob("*")):
+        if not path.is_file() or path.suffix.lower() not in _EXTS:
             continue
-        with open(os.path.join(res_dir, name), "rb") as f:
-            data = f.read()
+        name = path.relative_to(root).as_posix()
+        data = path.read_bytes()
         manifest.append({"name": name, "off": off, "len": len(data)})
         blobs.append(data)
         off += len(data)
     if not manifest:
-        raise SystemExit("[pack] 암호화할 이미지(png/gif)가 없습니다.")
+        raise SystemExit("[pack] 암호화할 이미지/사운드(png/gif/wav/flac)가 없습니다.")
     manifest_bytes = json.dumps(manifest, ensure_ascii=False).encode("utf-8")
     return b"".join([struct.pack("<I", len(manifest_bytes)), manifest_bytes, *blobs]), manifest
 
@@ -80,7 +82,7 @@ def main() -> None:
         f.write(pak)
     _write_key_module(root, key)
 
-    print(f"[pack] {len(manifest)}개 이미지 → {pak_path} ({len(pak)} bytes)")
+    print(f"[pack] {len(manifest)}개 리소스 → {pak_path} ({len(pak)} bytes)")
     print("[pack] core/_asset_key.py 생성됨")
 
 
