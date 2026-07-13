@@ -162,18 +162,13 @@ class TodoService:
         t = self._repo.get(todo_id)
         if not t or t.hidden:
             return False
-        visible_from = t.visible_from_date or t.due_date
-        if deadline_iso < visible_from:
-            visible_from = deadline_iso
+        visible_from = self._deadline_visible_from(t, deadline_iso)
         if t.deadline_date == deadline_iso and t.visible_from_date == visible_from:
             return True
         self._set_restore_undo([t])
         old_due = t.due_date
         self._repo.set_deadline(todo_id, visible_from, deadline_iso)
-        self._notify(old_due)
-        self._notify(visible_from)
-        if deadline_iso != old_due:
-            self._notify(deadline_iso)
+        self._notify_many((old_due, visible_from, deadline_iso))
         return True
 
     def clear_deadline(self, todo_id: int) -> bool:
@@ -182,9 +177,7 @@ class TodoService:
             return False
         self._set_restore_undo([t])
         self._repo.clear_deadline(todo_id)
-        self._notify(t.due_date)
-        if t.visible_from_date and t.visible_from_date != t.due_date:
-            self._notify(t.visible_from_date)
+        self._notify_many((t.due_date, t.visible_from_date))
         return True
 
     def duplicate(self, todo_id: int) -> None:
@@ -341,8 +334,12 @@ class TodoService:
         if iso == today.isoformat():
             self._recurring.ensure_for_date(today)
 
+    def _deadline_visible_from(self, todo: Todo, deadline_iso: str) -> str:
+        visible_from = todo.visible_from_date or todo.due_date
+        return deadline_iso if deadline_iso < visible_from else visible_from
+
     def _notify_many(self, dates) -> None:
-        for iso in dict.fromkeys(dates):
+        for iso in dict.fromkeys(d for d in dates if d):
             self._notify(iso)
 
     def _notify(self, iso: str) -> None:

@@ -16,14 +16,10 @@ class TodoRepository:
         self._db = db
         self.conn = db.conn
 
-    def _todos_from_rows(self, rows, *, virtual: bool = False) -> list[Todo]:
-        todos = [Todo.from_row(r) for r in rows]
-        if virtual:
-            for todo in todos:
-                todo.is_virtual_deadline_preview = True
-        return todos
+    def _todos_from_db_rows(self, rows) -> list[Todo]:
+        return [Todo.from_row(r) for r in rows]
 
-    def _deadline_preview_rows(self, iso: str, pinned: bool | None = None):
+    def _virtual_deadline_previews(self, iso: str, pinned: bool | None = None) -> list[Todo]:
         where = (
             "hidden = 0 AND completed = 0 "
             "AND deadline_date IS NOT NULL "
@@ -34,47 +30,83 @@ class TodoRepository:
         if pinned is not None:
             where += " AND pinned = ?"
             params.append(1 if pinned else 0)
+        rows = self.conn.execute(
+            f"SELECT * FROM todos WHERE {where}",
+            tuple(params),
+        ).fetchall()
+        todos = self._todos_from_db_rows(rows)
+        for todo in todos:
+            todo.is_virtual_deadline_preview = True
+        return todos
+
+    def _actual_rows_for_date(
+        self,
+        iso: str,
+        pinned: bool | None = None,
+        incomplete_only: bool = False,
+    ):
+        where = "due_date = ? AND hidden = 0"
+        params: list[object] = [iso]
+        if pinned is not None:
+            where += " AND pinned = ?"
+            params.append(1 if pinned else 0)
+        if incomplete_only:
+            where += " AND completed = 0"
         return self.conn.execute(
             f"SELECT * FROM todos WHERE {where}",
             tuple(params),
         ).fetchall()
 
-    def _sort_todos(self, todos: list[Todo], priority_sort: bool = False) -> list[Todo]:
+    def _visible_for_date(
+        self,
+        iso: str,
+        *,
+        pinned: bool | None = None,
+        priority_sort: bool = False,
+        incomplete_actual_only: bool = False,
+    ) -> list[Todo]:
+        todos = self._todos_from_db_rows(
+            self._actual_rows_for_date(
+                iso,
+                pinned=pinned,
+                incomplete_only=incomplete_actual_only,
+            )
+        )
+        todos.extend(self._virtual_deadline_previews(iso, pinned=pinned))
+        return self._sort_visible_todos(todos, pinned=pinned, priority_sort=priority_sort)
+
+    def _sort_visible_todos(
+        self,
+        todos: list[Todo],
+        *,
+        pinned: bool | None = None,
+        priority_sort: bool = False,
+    ) -> list[Todo]:
+        if pinned is not None:
+            if priority_sort:
+                return sorted(todos, key=lambda t: (-t.priority, t.sort_order, t.id))
+            return sorted(todos, key=lambda t: (t.sort_order, t.id))
         if priority_sort:
             return sorted(todos, key=lambda t: (-int(t.pinned), -t.priority, t.sort_order, t.id))
         return sorted(todos, key=lambda t: (-int(t.pinned), t.sort_order, t.id))
 
     # ── 조회 ────────────────────────────────────────────────
     def list_for_date(self, iso: str, priority_sort: bool = False) -> list[Todo]:
-        rows = self.conn.execute(
-            "SELECT * FROM todos WHERE due_date = ? AND hidden = 0",
-            (iso,),
-        ).fetchall()
-        todos = self._todos_from_rows(rows)
-        todos.extend(self._todos_from_rows(self._deadline_preview_rows(iso), virtual=True))
-        return self._sort_todos(todos, priority_sort=priority_sort)
+        return self._visible_for_date(iso, priority_sort=priority_sort)
 
     def pinned_for_date(self, iso: str) -> list[Todo]:
-        rows = self.conn.execute(
-            "SELECT * FROM todos "
-            "WHERE due_date = ? AND hidden = 0 AND completed = 0 AND pinned = 1 "
-            "ORDER BY sort_order, id",
-            (iso,),
-        ).fetchall()
-        todos = self._todos_from_rows(rows)
-        todos.extend(self._todos_from_rows(self._deadline_preview_rows(iso, pinned=True), virtual=True))
-        return sorted(todos, key=lambda t: (t.sort_order, t.id))
+        return self._visible_for_date(
+            iso,
+            pinned=True,
+            incomplete_actual_only=True,
+        )
 
     def unpinned_for_date(self, iso: str, priority_sort: bool = False) -> list[Todo]:
-        rows = self.conn.execute(
-            "SELECT * FROM todos WHERE due_date = ? AND hidden = 0 AND pinned = 0",
-            (iso,),
-        ).fetchall()
-        todos = self._todos_from_rows(rows)
-        todos.extend(self._todos_from_rows(self._deadline_preview_rows(iso, pinned=False), virtual=True))
-        if priority_sort:
-            return sorted(todos, key=lambda t: (-t.priority, t.sort_order, t.id))
-        return sorted(todos, key=lambda t: (t.sort_order, t.id))
+        return self._visible_for_date(
+            iso,
+            pinned=False,
+            priority_sort=priority_sort,
+        )
 
     def pinned_count_for_date(self, iso: str) -> int:
         r = self.conn.execute(
