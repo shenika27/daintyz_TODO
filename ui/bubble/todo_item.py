@@ -33,14 +33,19 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
+    QDialog,
+    QDialogButtonBox,
+    QFormLayout,
     QGraphicsOpacityEffect,
     QHBoxLayout,
     QLabel,
     QMenu,
     QPlainTextEdit,
     QSizePolicy,
+    QSpinBox,
     QToolButton,
     QToolTip,
+    QVBoxLayout,
     QWidget,
 )
 
@@ -114,6 +119,59 @@ class _TodoEditor(QPlainTextEdit):
         self.setFixedHeight(line_h * lines + pad)
 
 
+class _DeadlineDateDialog(QDialog):
+    def __init__(self, initial_iso: str, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("마감일 설정")
+        self.setModal(True)
+
+        try:
+            initial = date.fromisoformat(initial_iso)
+        except ValueError:
+            initial = date.today()
+
+        outer = QVBoxLayout(self)
+        form = QFormLayout()
+
+        self.year = QSpinBox()
+        self.year.setRange(1, 9999)
+        self.year.setValue(initial.year)
+        self.year.setSuffix("년")
+
+        self.month = QSpinBox()
+        self.month.setRange(1, 12)
+        self.month.setValue(initial.month)
+        self.month.setSuffix("월")
+
+        self.day = QSpinBox()
+        self.day.setRange(1, 31)
+        self.day.setValue(initial.day)
+        self.day.setSuffix("일")
+
+        form.addRow("연", self.year)
+        form.addRow("월", self.month)
+        form.addRow("일", self.day)
+        outer.addLayout(form)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        outer.addWidget(buttons)
+
+        self.year.valueChanged.connect(self._sync_day_max)
+        self.month.valueChanged.connect(self._sync_day_max)
+        self._sync_day_max()
+
+    def selected_iso(self) -> str:
+        return date(self.year.value(), self.month.value(), self.day.value()).isoformat()
+
+    def _sync_day_max(self) -> None:
+        max_day = policies.monthly_target_day(self.year.value(), self.month.value(), 31)
+        self.day.setMaximum(max_day)
+
+
 class TodoItem(QWidget):
     request_remove = Signal(int)
 
@@ -128,7 +186,7 @@ class TodoItem(QWidget):
         self._settings = settings_repo
         self._events = events
         self._compact = compact
-        self._allow_drag = allow_drag
+        self._allow_drag = allow_drag and not todo.is_virtual_deadline_preview
         self._allow_week_move = allow_week_move
         self._priority_sort = priority_sort
         self._press_pos: QPoint | None = None
@@ -288,6 +346,18 @@ class TodoItem(QWidget):
         if self._editing:
             self.check.setChecked(self.todo.completed)
             return
+        self._toggle_completed()
+
+    def _toggle_completed(self) -> None:
+        if self.todo.is_virtual_deadline_preview:
+            self._service.toggle(self.todo.id, notify=False)
+            self.todo.completed = not self.todo.completed
+            self.check.setChecked(self.todo.completed)
+            self.label.setProperty("state", "done" if self.todo.completed else "active")
+            self.label.style().unpolish(self.label)
+            self.label.style().polish(self.label)
+            self._apply_strike()
+            return
         self._service.toggle(self.todo.id)
 
     def _cycle_priority(self) -> None:
@@ -312,10 +382,16 @@ class TodoItem(QWidget):
     def _update_elision(self) -> None:
         fm = QFontMetrics(self.label.font())
         w = max(10, self.label.width())
-        lines = self.todo.content.splitlines() or [""]
+        lines = self._display_text().splitlines() or [""]
         self.label.setText(
             "\n".join(fm.elidedText(line, Qt.TextElideMode.ElideRight, w) for line in lines)
         )
+
+    def _display_text(self) -> str:
+        if not self.todo.deadline_date:
+            return self.todo.content
+        d = date.fromisoformat(self.todo.deadline_date)
+        return f"({d.month:02d}/{d.day:02d}) {self.todo.content}"
 
     def _set_actions_reserved(self, reserved: bool) -> None:
         """hover 편집/삭제 버튼 자리를 펼치거나(46) 접는다(0).
@@ -411,6 +487,7 @@ class TodoItem(QWidget):
         menu.addSeparator()
         self._add_priority_menu(menu)
         self._add_pin_action(menu)
+        self._add_deadline_actions(menu)
         self._add_move_actions(menu)
         self._add_timer_actions(menu)
         self._add_delete_action(menu)
@@ -440,8 +517,27 @@ class TodoItem(QWidget):
             pin.triggered.connect(lambda: self._service.set_pinned(self.todo.id, True))
             menu.addSeparator()
 
-    def _add_move_actions(self, menu: QMenu) -> None:
+    def _add_deadline_actions(self, menu: QMenu) -> None:
         if self.todo.completed:
+            return
+        if self.todo.deadline_date:
+            change = menu.addAction("마감일 변경")
+            change.triggered.connect(self._show_deadline_dialog)
+            clear = menu.addAction("마감일 해제")
+            clear.triggered.connect(lambda: self._service.clear_deadline(self.todo.id))
+        else:
+            set_deadline = menu.addAction("마감일 설정")
+            set_deadline.triggered.connect(self._show_deadline_dialog)
+        menu.addSeparator()
+
+    def _show_deadline_dialog(self) -> None:
+        initial_iso = self.todo.deadline_date or self.todo.due_date
+        dlg = _DeadlineDateDialog(initial_iso, self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            self._service.set_deadline(self.todo.id, dlg.selected_iso())
+
+    def _add_move_actions(self, menu: QMenu) -> None:
+        if self.todo.completed or self.todo.is_virtual_deadline_preview:
             return
         next_day = menu.addAction("다음날로 이동")
         next_day.triggered.connect(lambda: self._move_by_days(1))
@@ -513,7 +609,7 @@ class TodoItem(QWidget):
                 else:
                     self._open_timer_panel()
             else:
-                self._service.toggle(self.todo.id)   # 본문 클릭 = 완료 토글
+                self._toggle_completed()   # 본문 클릭 = 완료 토글
         self._press_pos = None
 
     def _timer_panel_open(self) -> bool:

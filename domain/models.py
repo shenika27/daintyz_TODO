@@ -23,10 +23,17 @@ class Todo:
     pinned: bool = False
     remind_at: Optional[str] = None      # 'YYYY-MM-DD HH:MM' (지금은 항상 None)
     recurring_id: Optional[int] = None
+    deadline_date: Optional[str] = None
+    visible_from_date: Optional[str] = None
+    is_virtual_deadline_preview: bool = False
 
     @property
     def is_recurring_instance(self) -> bool:
         return self.recurring_id is not None
+
+    @property
+    def has_deadline(self) -> bool:
+        return self.deadline_date is not None
 
     @staticmethod
     def from_row(row) -> "Todo":
@@ -41,6 +48,10 @@ class Todo:
             pinned=bool(row["pinned"]) if "pinned" in row.keys() else False,
             remind_at=row["remind_at"],
             recurring_id=row["recurring_id"],
+            deadline_date=row["deadline_date"] if "deadline_date" in row.keys() else None,
+            visible_from_date=(
+                row["visible_from_date"] if "visible_from_date" in row.keys() else None
+            ),
         )
 
 

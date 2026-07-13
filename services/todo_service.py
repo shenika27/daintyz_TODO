@@ -41,10 +41,10 @@ class TodoService:
         return self._repo.unpinned_for_date(iso, priority_sort=priority_sort)
 
     def total_incomplete_count(self) -> int:
-        """날짜와 무관하게 미완료 할일 전체 개수('할일 n개' 풍선용).
+        """캐릭터 위 '할일 n개' 풍선용 개수.
         오늘 회차 반복 할일이 빠지지 않도록 먼저 생성한 뒤 센다."""
         self._recurring.ensure_for_date(date.today())
-        return self._repo.count_incomplete()
+        return self._repo.count_visible_incomplete_for_today(date.today().isoformat())
 
     def ensure_today_recurring(self) -> None:
         """오늘 날짜의 반복 회차를 생성(앱 시작·자정 넘김 시 컨트롤러가 호출)."""
@@ -81,13 +81,23 @@ class TodoService:
         return delta.total_seconds() >= hours * 3600
 
     # ── 쓰기 ────────────────────────────────────────────────
-    def add(self, content: str, iso: str, priority: int = 0) -> None:
+    def add(
+        self,
+        content: str,
+        iso: str,
+        priority: int = 0,
+        deadline_date: str | None = None,
+    ) -> None:
         content = content.strip()
         if not content:
             return
         priority = max(0, min(3, int(priority)))
-        self._repo.add(content, iso, priority)
+        visible_from = iso if deadline_date else None
+        due_iso = deadline_date or iso
+        self._repo.add(content, iso, priority, deadline_date, visible_from)
         self._notify(iso)
+        if due_iso != iso:
+            self._notify(due_iso)
         self._events.todo_added.emit()
 
     def add_many(self, contents: list[str], iso: str, priority: int = 0) -> int:
@@ -98,7 +108,7 @@ class TodoService:
             self._events.todo_added.emit()
         return count
 
-    def toggle(self, todo_id: int) -> None:
+    def toggle(self, todo_id: int, notify: bool = True) -> None:
         t = self._repo.get(todo_id)
         if not t:
             return
@@ -106,7 +116,8 @@ class TodoService:
         self._repo.set_completed(todo_id, now_completed)
         if now_completed and t.pinned:
             self._repo.set_pinned(todo_id, False)
-        self._notify(t.due_date)
+        if notify:
+            self._notify(t.due_date)
         if now_completed:  # 미완료→완료 전환 순간만(캐릭터 리액션용)
             self._events.todo_completed.emit()
 
@@ -145,6 +156,35 @@ class TodoService:
         self._set_restore_undo([t])
         self._repo.set_pinned(todo_id, pinned)
         self._notify(t.due_date)
+        return True
+
+    def set_deadline(self, todo_id: int, deadline_iso: str) -> bool:
+        t = self._repo.get(todo_id)
+        if not t or t.hidden:
+            return False
+        visible_from = t.visible_from_date or t.due_date
+        if deadline_iso < visible_from:
+            visible_from = deadline_iso
+        if t.deadline_date == deadline_iso and t.visible_from_date == visible_from:
+            return True
+        self._set_restore_undo([t])
+        old_due = t.due_date
+        self._repo.set_deadline(todo_id, visible_from, deadline_iso)
+        self._notify(old_due)
+        self._notify(visible_from)
+        if deadline_iso != old_due:
+            self._notify(deadline_iso)
+        return True
+
+    def clear_deadline(self, todo_id: int) -> bool:
+        t = self._repo.get(todo_id)
+        if not t or t.hidden or not t.deadline_date:
+            return False
+        self._set_restore_undo([t])
+        self._repo.clear_deadline(todo_id)
+        self._notify(t.due_date)
+        if t.visible_from_date and t.visible_from_date != t.due_date:
+            self._notify(t.visible_from_date)
         return True
 
     def duplicate(self, todo_id: int) -> None:
