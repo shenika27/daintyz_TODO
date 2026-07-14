@@ -27,7 +27,6 @@ from PySide6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
     QFrame,
-    QGraphicsOpacityEffect,
     QHBoxLayout,
     QLabel,
     QSizeGrip,
@@ -91,7 +90,9 @@ _GAP = 6
 # 음수로 그 여백을 겹치게 해야 실제 보이는 간격이 좁아진다(8 + gap + 8 = 보이는 간격).
 _PANEL_GAP = -10  # 보이는 간격 ≈ 6px (기존 ≈18px의 1/3)
 _STACK_GAP = -10  # 같은 컬럼에서 밀린할일 ↕ 타이머 패널 세로 간격(겹치는 그림자 보정)
-_SLIDE_PX = 18  # 열기/닫기 슬라이드 이동 거리(px)
+_SLIDE_PX = 18      # 열기/닫기 슬라이드 이동 거리(px)
+_OPEN_MS = 220      # 열기 슬라이드(아래→최종) 시간
+_CLOSE_MS = 160     # 닫기 슬라이드(최종→아래) 시간
 _MARGIN = 6
 # ✕로 목록만 닫아 패널을 캐릭터 위로 띄울 때 밀린할일 패널 높이(말풍선 높이에 안 묶임)
 _DETACHED_OVERDUE_H = 220
@@ -106,7 +107,7 @@ class BubbleWidget(QWidget):
         self._timer = timer_service
         self._char_geom: QRect | None = None
         self._screen_geom: QRect | None = None
-        self._anim: QParallelAnimationGroup | None = None
+        self._anim: QParallelAnimationGroup | None = None  # 열기/닫기 슬라이드
         # ✕ 닫기로 말풍선만 내리고 옆 컬럼 패널(밀린할일·타이머)은 화면에 남길 때 True.
         self._panels_detached = False
 
@@ -350,17 +351,12 @@ class BubbleWidget(QWidget):
 
     # ── 렌더 ────────────────────────────────────────────────
     def render(self) -> None:
-        # 보기 모드(일/주/월)가 바뀐 렌더면 새 뷰를 부드럽게 페이드 인(#13)
-        view_changed = getattr(self, "_rendered_view", self.view_mode) != self.view_mode
         # 뷰를 헐고 다시 짓는 동안의 중간 페인트를 막아 깜빡임/버벅임을 줄인다.
         self.setUpdatesEnabled(False)
         try:
             self._render_body()
         finally:
             self.setUpdatesEnabled(True)
-        self._rendered_view = self.view_mode
-        if view_changed and self._anim_enabled() and self.isVisible():
-            self._play_view_fade()
 
     def event(self, e) -> bool:
         if e.type() == QEvent.Type.WindowActivate:
@@ -379,19 +375,6 @@ class BubbleWidget(QWidget):
         if QApplication.activePopupWidget() is not None:
             return
         self.raise_()
-
-    def _play_view_fade(self) -> None:
-        """일→주→월 등 보기 전환 시 새 뷰 영역을 0→1 로 부드럽게 페이드 인(#13)."""
-        eff = QGraphicsOpacityEffect(self._view_holder)
-        self._view_holder.setGraphicsEffect(eff)
-        anim = QPropertyAnimation(eff, b"opacity", self)
-        anim.setDuration(180)
-        anim.setStartValue(0.0)
-        anim.setEndValue(1.0)
-        anim.setEasingCurve(QEasingCurve.Type.OutCubic)
-        anim.finished.connect(lambda: self._view_holder.setGraphicsEffect(None))
-        self._view_anim = anim  # GC 방지용 참조 유지
-        anim.start()
 
     def _render_body(self) -> None:
         while self._view_layout.count():
@@ -587,7 +570,7 @@ class BubbleWidget(QWidget):
 
     def minimize_all(self) -> None:
         """모든 그리드(말풍선·패널)를 숨긴다 — 캐릭터 클릭/– 최소화 공통 진입점.
-        설정값(체크 상태)은 건드리지 않는다(#4). 말풍선이 떠 있으면 슬라이드 애니메이션,
+        설정값(체크 상태)은 건드리지 않는다(#4). 말풍선이 떠 있으면 페이드 아웃 후,
         detached 패널만 떠 있으면 즉시 숨긴다. 완료되면 bubble_closed 로 캐릭터를 동기화."""
         if self.isVisible():
             self.hide_animated()        # done 에서 hide + bubble_closed
@@ -604,17 +587,21 @@ class BubbleWidget(QWidget):
         self._panels_detached = self._show_overdue or self._show_timer
         if self._panels_detached:
             self._position_panels_detached()   # 패널을 캐릭터 상단 중앙으로 이동
+            # 슬라이드 준비 갭에서 투명하게 덮어둔 것이 남지 않도록 불투명 복원.
+            self._overdue_panel.setWindowOpacity(1.0)
+            if self._timer_panel is not None:
+                self._timer_panel.setWindowOpacity(1.0)
+        self.setWindowOpacity(1.0)             # 다음 목록 표시를 위해 복원
         self.hide()                            # 말풍선 즉시 숨김(detached 아니면 hideEvent 가 패널도 숨김)
         self._events.bubble_closed.emit()
 
-    # ── 슬라이드 인/아웃 애니메이션(말풍선 + 옆 컬럼 패널 함께) ──────
-    # 열기=아래에서 위로 올라오며 등장, 닫기=위에서 아래로 내려가며 사라짐.
-    def _anim_enabled(self) -> bool:
-        return self._settings.get_bool(policies.KEY_BUBBLE_ANIMATION, True)
-
+    # ── 열기/닫기 슬라이드(말풍선 + 옆 컬럼 패널 함께) ─────────────
+    # 열기=아래에서 위로 올라오며 등장, 닫기=위에서 아래로 내려가며 사라짐. opacity 페이드는
+    # 없다(순수 슬라이드). 열기는 _finalize_size(크기 확정) '뒤' 한 틱 미뤄 시작하므로,
+    # 슬라이드 중 지오메트리를 건드리는 지연 콜백과 경합하지 않아 깜빡이지 않는다.
     def _slide_targets(self) -> list:
-        """현재 보이는(또는 곧 보일) 말풍선 + 옆 컬럼 패널을 (위젯, 최종좌표)로."""
-        out = [(self, self.pos())]
+        """현재 보이는 슬라이드 대상 (위젯, 최종좌표): 말풍선 + 옆 컬럼 패널."""
+        out: list = [(self, self.pos())]
         if self._overdue_panel.isVisible():
             out.append((self._overdue_panel, self._overdue_panel.pos()))
         if self._timer_panel is not None and self._timer_panel.isVisible():
@@ -626,68 +613,57 @@ class BubbleWidget(QWidget):
             self._anim.stop()
             self._anim = None
 
-    def _build_slide(self, targets: list, dy_from: int, dy_to: int,
-                     curve: QEasingCurve.Type, dur: int) -> QParallelAnimationGroup:
-        """targets: [(위젯, 최종좌표)]. 최종좌표 기준 y+dy_from → y+dy_to 로 이동."""
-        grp = QParallelAnimationGroup(self)
-        for w, final in targets:
-            a = QPropertyAnimation(w, b"pos", grp)
-            a.setDuration(dur)
-            a.setStartValue(QPoint(final.x(), final.y() + dy_from))
-            a.setEndValue(QPoint(final.x(), final.y() + dy_to))
-            a.setEasingCurve(curve)
-            grp.addAnimation(a)
-        return grp
+    def _restore_grid_opacity(self) -> None:
+        """슬라이드 준비 갭에서 덮어둔 opacity 0 을 1.0 으로 복원(안 보이는 상태로 남는 것 방지)."""
+        self.setWindowOpacity(1.0)
+        self._overdue_panel.setWindowOpacity(1.0)
+        if self._timer_panel is not None:
+            self._timer_panel.setWindowOpacity(1.0)
 
-    def _play_open(self, targets: list | None = None) -> None:
-        """아래(+SLIDE)에서 최종 위치로 슬라이드 인 + 짧은 페이드로 등장 보정.
-        _reposition/show 가 패널·말풍선을 '최종 위치'에 먼저 띄우므로, 같은 호출 스택에서
-        (이벤트 루프 복귀 전) opacity 0 으로 덮고 시작 위치로 내려둔다. 그래서 첫 페인트가
-        최종 위치에서 번쩍이며 '위에서 덜컥' 떨어지는 일이 없고, 페이드가 잔여 점프를 가린다."""
-        self._stop_anim()
-        targets = targets or self._slide_targets()
-        for w, final in targets:
-            w.setWindowOpacity(0.0)                     # 최종 위치 첫 페인트를 덮음
-            w.move(final.x(), final.y() + _SLIDE_PX)    # 시작 위치(아래)로
-        grp = QParallelAnimationGroup(self)
-        for w, final in targets:
-            pa = QPropertyAnimation(w, b"pos", grp)
-            pa.setDuration(220)
-            pa.setStartValue(QPoint(final.x(), final.y() + _SLIDE_PX))
-            pa.setEndValue(QPoint(final.x(), final.y()))
-            pa.setEasingCurve(QEasingCurve.Type.OutCubic)
-            grp.addAnimation(pa)
-            oa = QPropertyAnimation(w, b"windowOpacity", grp)
-            oa.setDuration(150)
-            oa.setStartValue(0.0)
-            oa.setEndValue(1.0)
-            oa.setEasingCurve(QEasingCurve.Type.OutCubic)
-            grp.addAnimation(oa)
-        self._anim = grp
-        self._anim.start()
-
-    def hide_animated(self) -> None:
-        """말풍선+패널을 아래로 슬라이드 아웃한 뒤 hide(캐릭터 클릭/– 최소화 경로).
-        애니메이션이 꺼져 있으면 즉시 닫는다. 끝나면 bubble_closed 로 캐릭터를 동기화."""
-        if not self._anim_enabled() or not self.isVisible():
-            self.hide()
-            self._events.bubble_closed.emit()
+    def _play_open(self) -> None:
+        """show_for_character 가 한 틱 미뤄 호출(_finalize_size 뒤). 확정된 정적 지오메트리에서
+        보이는 그리드 창들을 '아래(+SLIDE) → 최종'으로 슬라이드시킨다."""
+        if not self.isVisible():
+            self._restore_grid_opacity()  # 열기가 취소됐어도 투명하게 남지 않게
             return
         self._stop_anim()
         targets = self._slide_targets()
-        self._anim = self._build_slide(
-            targets, 0, _SLIDE_PX, QEasingCurve.Type.InCubic, 160
-        )
+        grp = QParallelAnimationGroup(self)
+        for w, final in targets:
+            w.move(final.x(), final.y() + _SLIDE_PX)  # 시작 위치(아래)로 내려두고
+            w.setWindowOpacity(1.0)                    # 갭 동안 숨겼던 것 즉시 표시(페이드 아님)
+            a = QPropertyAnimation(w, b"pos", grp)
+            a.setDuration(_OPEN_MS)
+            a.setStartValue(QPoint(final.x(), final.y() + _SLIDE_PX))
+            a.setEndValue(QPoint(final.x(), final.y()))
+            a.setEasingCurve(QEasingCurve.Type.OutCubic)
+            grp.addAnimation(a)
+        self._anim = grp
+        grp.start()
+
+    def hide_animated(self) -> None:
+        """말풍선+보이는 패널을 '최종 → 아래(+SLIDE)'로 슬라이드 아웃한 뒤 hide.
+        끝나면 위치 복원 + bubble_closed 로 캐릭터를 동기화."""
+        self._stop_anim()
+        targets = self._slide_targets()
+        grp = QParallelAnimationGroup(self)
+        for w, final in targets:
+            a = QPropertyAnimation(w, b"pos", grp)
+            a.setDuration(_CLOSE_MS)
+            a.setStartValue(QPoint(final.x(), final.y()))
+            a.setEndValue(QPoint(final.x(), final.y() + _SLIDE_PX))
+            a.setEasingCurve(QEasingCurve.Type.InCubic)
+            grp.addAnimation(a)
 
         def done() -> None:
             self.hide()  # hideEvent 가 옆 컬럼 패널도 함께 숨김
             for w, final in targets:
-                w.move(final)           # 다음 표시를 위해 위치 복원
-                w.setWindowOpacity(1.0)  # 중단된 open 으로 반투명하게 남는 것 방지
+                w.move(final)  # 다음 표시를 위해 위치 복원
             self._events.bubble_closed.emit()
 
-        self._anim.finished.connect(done)
-        self._anim.start()
+        self._anim = grp
+        grp.finished.connect(done)
+        grp.start()
 
     # ── 배치 ────────────────────────────────────────────────
     def show_for_character(self, char_geom: QRect, screen_geom: QRect) -> None:
@@ -695,30 +671,26 @@ class BubbleWidget(QWidget):
         self._screen_geom = screen_geom
         self._panels_detached = False  # 다시 열리면 패널은 말풍선 옆 컬럼으로 복귀
         self._settings.set_bool(policies.KEY_LIST_SHOW, True)  # 목록 그리드 ON 상태로 기록
-        animate = self._anim_enabled()
-        if animate:
-            self._stop_anim()
-            self.setWindowOpacity(0.0)
-            self._overdue_panel.setWindowOpacity(0.0 if self._show_overdue else 1.0)
-            if self._timer_panel is not None:
-                self._timer_panel.setWindowOpacity(0.0 if self._show_timer else 1.0)
+        self._stop_anim()
+        # 슬라이드 준비: 확정(_finalize_size)이 끝날 때까지 그리드를 '투명(0)'으로 덮어
+        # 보이지 않게 한다(페이드 아님 — _play_open 에서 즉시 1.0 으로 되돌림).
+        # 표시 안 할 패널은 1.0 유지 → 나중에 켤 때 안 보이는 일 없게.
+        self.setWindowOpacity(0.0)
+        self._overdue_panel.setWindowOpacity(0.0 if self._show_overdue else 1.0)
+        if self._timer_panel is not None:
+            self._timer_panel.setWindowOpacity(0.0 if self._show_timer else 1.0)
         self.render()  # 최소/저장 크기까지 여기서 확정(별도 adjustSize 금지: 커스텀 크기 덮어씀)
         # 위치를 먼저 잡고(이동) show → 첫 표시 시 엉뚱한 위치 깜빡임 방지
         self.move(self._placement(char_geom, screen_geom))
         self.show()
         self.raise_()
         # show 뒤에 패널 배치: _position_left_column 은 isVisible 가드가 있어
-        # show 전에 부르면 패널을 숨기고 빠져나간다. 이제 패널들도 표시돼
-        # _play_open 의 _slide_targets 에 잡혀 함께 슬라이드+페이드된다.
+        # show 전에 부르면 패널을 숨기고 빠져나간다.
         self._reposition()
         self._events.bubble_opened.emit()  # 캐릭터 '목록 열림' 이미지 전환(#12)
-        if animate:
-            self._play_open(self._slide_targets())
-        else:
-            self.setWindowOpacity(1.0)
-            self._overdue_panel.setWindowOpacity(1.0)
-            if self._timer_panel is not None:
-                self._timer_panel.setWindowOpacity(1.0)
+        # _render_body 가 예약한 _finalize_size(크기 확정) '뒤'에 슬라이드가 돌도록 한 틱 미룬다.
+        # 확정은 opacity 0(안 보임) 상태에서 끝나고, 그 뒤 정적 지오메트리에서만 슬라이드 → 무깜빡.
+        QTimer.singleShot(0, self._play_open)
 
     def reposition_for_character(self, char_geom: QRect, screen_geom: QRect) -> None:
         """캐릭터 드래그 중 말풍선만 따라 이동(뷰 재구성 없이 위치만)."""
@@ -873,13 +845,11 @@ class BubbleWidget(QWidget):
             overdue.setFixedHeight(overdue_h)
             overdue.move(x, top)
             overdue.reload()
-            overdue.setWindowOpacity(1.0)
             overdue.show()
             overdue.raise_()
             timer.setFixedHeight(tb)
             timer.move(x, top + overdue_h + _STACK_GAP)
             timer.reload()
-            timer.setWindowOpacity(1.0)
             timer.show()
             timer.raise_()
         elif timer_on:
@@ -887,17 +857,14 @@ class BubbleWidget(QWidget):
             timer.setFixedHeight(timer.block_height())
             timer.move(x, top)
             timer.reload()
-            timer.setWindowOpacity(1.0)
             timer.show()
             timer.raise_()
         elif self._show_overdue:
             if timer is not None:
-                timer.setWindowOpacity(1.0)
                 timer.hide()
             overdue.setFixedHeight(col_h)
             overdue.move(x, top)
             overdue.reload()
-            overdue.setWindowOpacity(1.0)
             overdue.show()
             overdue.raise_()
         else:

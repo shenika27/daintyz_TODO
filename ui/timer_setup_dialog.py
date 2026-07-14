@@ -6,7 +6,7 @@
 """
 from __future__ import annotations
 
-from PySide6.QtCore import QEasingCurve, QPoint, QPropertyAnimation, Qt
+from PySide6.QtCore import QPoint, Qt
 from PySide6.QtGui import QFontMetrics
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -36,12 +36,6 @@ class TimerSetupDialog(QDialog):
         self.result_seconds: int | None = None
         self.auto_complete: bool = False  # 확인 시 '완료 시 자동 완료' 선택값
         self._drag_offset: QPoint | None = None
-        self._animate = (
-            settings_repo.get_bool(policies.KEY_BUBBLE_ANIMATION, True)
-            if settings_repo else True
-        )
-        self._anim: QPropertyAnimation | None = None
-        self._shown_once = False
 
         make_overlay_window(self, dialog=True)
         self.setModal(True)
@@ -157,41 +151,6 @@ class TimerSetupDialog(QDialog):
         if self._settings is not None:  # 마지막 선택 기억
             self._settings.set_bool(policies.KEY_TIMER_AUTO_COMPLETE, self.auto_complete)
         self.accept()
-
-    # ── 페이드 인/아웃 애니메이션(설정으로 on/off) ─────────────
-    def showEvent(self, e) -> None:
-        super().showEvent(e)
-        if self._animate and not self._shown_once:
-            self._shown_once = True
-            self.setWindowOpacity(0.0)
-            self._anim = QPropertyAnimation(self, b"windowOpacity", self)
-            self._anim.setDuration(150)
-            self._anim.setStartValue(0.0)
-            self._anim.setEndValue(1.0)
-            self._anim.setEasingCurve(QEasingCurve.Type.OutCubic)
-            self._anim.start()
-
-    def accept(self) -> None:
-        self._close_animated(True)
-
-    def reject(self) -> None:
-        self._close_animated(False)
-
-    def _close_animated(self, accepted: bool) -> None:
-        """페이드 아웃 후 실제 accept/reject. 애니메이션이 꺼져 있으면 즉시 닫는다."""
-        def done() -> None:
-            (QDialog.accept if accepted else QDialog.reject)(self)
-
-        if not self._animate or self.windowOpacity() <= 0:
-            done()
-            return
-        self._anim = QPropertyAnimation(self, b"windowOpacity", self)
-        self._anim.setDuration(110)
-        self._anim.setStartValue(self.windowOpacity())
-        self._anim.setEndValue(0.0)
-        self._anim.setEasingCurve(QEasingCurve.Type.InCubic)
-        self._anim.finished.connect(done)
-        self._anim.start()
 
     # ── 스타일(말풍선 테마 + 다이얼로그 전용 버튼/스핀) ─────────
     def _apply_theme(self) -> None:

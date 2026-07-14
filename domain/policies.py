@@ -42,7 +42,6 @@ KEY_HOTKEY_OVERDUE = "hotkey.overdue"              # 밀린할일 패널 토글
 KEY_HOTKEY_TIMER = "hotkey.timer_panel"            # 타이머 패널 토글
 KEY_HOTKEY_SCOPE = "hotkey.scope"                  # 'focused' | 'global'
 KEY_HOTKEY_PASTE = "hotkey.paste_clipboard"        # 클립보드 붙여넣기
-KEY_BUBBLE_ANIMATION = "app.bubble_animation"      # '0' | '1' — 팝업 열기/닫기 페이드 애니메이션
 KEY_TIMER_AUTO_COMPLETE = "timer.auto_complete"    # '0' | '1' — 타이머 완료 시 할일 자동 완료
 KEY_TIMER_STEP = "timer.adjust_step"               # 타이머 −/+ 증감 간격(초). 1분 미만은 항상 5초 고정.
 KEY_TODO_COUNT_BUBBLE = "bubble.todo_count_bubble"  # '0' | '1' — 최소화 시 '할일 n개' 풍선 표시

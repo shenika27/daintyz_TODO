@@ -400,16 +400,6 @@ class SettingsDialog(QDialog):
         self._todo_bubble_cb.toggled.connect(self._toggle_todo_bubble)
         form.addRow("", self._todo_bubble_cb)
 
-        # 팝업 열기/닫기 페이드 애니메이션
-        self._anim_cb = QCheckBox("팝업 열기/닫기 애니메이션")
-        self._anim_cb.setChecked(
-            self._settings.get_bool(policies.KEY_BUBBLE_ANIMATION, True)
-        )
-        self._anim_cb.toggled.connect(
-            lambda on: self._settings.set_bool(policies.KEY_BUBBLE_ANIMATION, on)
-        )
-        form.addRow("", self._anim_cb)
-
         return w
 
     # ── 관리 탭 ─────────────────────────────────────────────
